@@ -217,8 +217,13 @@ def _clean_years(raw: str) -> str:
 def _parse_int(raw: Optional[str]) -> int:
     if not raw:
         return 0
-    cleaned = re.sub(r'[^\d]', '', raw)
-    return int(cleaned) if cleaned else 0
+    # Extract just the first number (avoid concatenating multiple numbers)
+    match = re.search(r'\d+', raw)
+    if not match:
+        return 0
+    value = int(match.group())
+    # Sanity check: cap at reasonable max (no player has 2000+ apps/goals per club)
+    return min(value, 2000)
 
 
 def _guess_country(club_name: str) -> str:
