@@ -113,9 +113,13 @@ def fetch_players_from_wikidata(league_qid: str, limit: int = 500) -> list[dict]
     }}
     LIMIT {limit}
     """
+    headers = {
+        "Accept": "application/sparql-results+json",
+        "User-Agent": "CareerQuizBot/1.0 (https://github.com/adroual/career-quiz; adroual@gmail.com)"
+    }
     try:
         resp = requests.get(WIKIDATA_SPARQL_URL, params={"query": query},
-                          headers={"Accept": "application/sparql-results+json"}, timeout=60)
+                          headers=headers, timeout=60)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -150,9 +154,14 @@ def fetch_all_league_players(limit_per_league: int = 500) -> dict:
 def fetch_wikipedia_wikitext(title: str) -> Optional[str]:
     params = {"action": "query", "titles": title, "prop": "revisions",
               "rvprop": "content", "format": "json", "formatversion": "2"}
+    headers = {
+        "User-Agent": "CareerQuizBot/1.0 (https://github.com/adroual/career-quiz; adroual@gmail.com)"
+    }
     try:
-        resp = requests.get(WIKIPEDIA_API_URL, params=params, timeout=30)
-        pages = resp.json().get("query", {}).get("pages", [])
+        resp = requests.get(WIKIPEDIA_API_URL, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        pages = data.get("query", {}).get("pages", [])
         if pages and "revisions" in pages[0]:
             return pages[0]["revisions"][0].get("content", "")
     except Exception as e:
