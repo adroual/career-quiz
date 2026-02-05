@@ -117,11 +117,16 @@ export async function getPartyMembers(partyId) {
 export async function getTodayRounds(partyId) {
   const today = new Date().toISOString().split("T")[0];
 
-  // Try to generate (no-op if already exists)
-  await supabase.rpc("generate_daily_rounds", {
+  // Try to generate rounds (ignore errors - 409 means rounds already exist)
+  const { error: rpcError } = await supabase.rpc("generate_daily_rounds", {
     p_party_id: partyId,
     p_date: today,
   });
+
+  // Log but don't throw - 409 conflict just means rounds exist already
+  if (rpcError) {
+    console.log("generate_daily_rounds:", rpcError.message || "rounds may already exist");
+  }
 
   // Fetch rounds with player data and career entries
   const { data: rounds, error } = await supabase
@@ -352,4 +357,35 @@ export function getMemberSession(partyId) {
   } catch {
     return null;
   }
+}
+
+/** Get all saved sessions from localStorage */
+export function getAllSessions() {
+  try {
+    return JSON.parse(localStorage.getItem("cq_sessions") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+/** Get party by ID */
+export async function getPartyById(partyId) {
+  const { data, error } = await supabase
+    .from("parties")
+    .select("*, party_members!party_id(*)")
+    .eq("id", partyId)
+    .eq("is_active", true)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/** Remove a session from localStorage */
+export function removeSession(partyId) {
+  try {
+    const sessions = JSON.parse(localStorage.getItem("cq_sessions") || "{}");
+    delete sessions[partyId];
+    localStorage.setItem("cq_sessions", JSON.stringify(sessions));
+  } catch {}
 }

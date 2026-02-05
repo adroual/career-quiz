@@ -14,6 +14,9 @@ import {
   shareScore as shareScoreWA,
   saveMemberSession,
   getMemberSession,
+  getAllSessions,
+  getPartyById,
+  removeSession,
 } from "./lib/supabase";
 
 const REVEAL_INTERVAL = 3200;
@@ -47,6 +50,7 @@ export default function CareerQuizApp() {
   const [isCorrect, setIsCorrect] = useState(null);
   const [scores, setScores] = useState([]);
   const [streak, setStreak] = useState(0);
+  const [savedParties, setSavedParties] = useState([]);
 
   const inputRef = useRef(null);
   const timerRef = useRef(null);
@@ -56,7 +60,52 @@ export default function CareerQuizApp() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("join");
     if (code) setScreen("join");
+
+    // Load saved parties from localStorage
+    loadSavedParties();
   }, []);
+
+  const loadSavedParties = async () => {
+    const sessions = getAllSessions();
+    const partyIds = Object.keys(sessions);
+    if (partyIds.length === 0) return;
+
+    const parties = [];
+    for (const partyId of partyIds) {
+      try {
+        const partyData = await getPartyById(partyId);
+        const memberId = sessions[partyId];
+        const memberData = partyData.party_members.find(m => m.id === memberId);
+        if (partyData && memberData) {
+          parties.push({ party: partyData, member: memberData });
+        } else {
+          // Remove invalid session
+          removeSession(partyId);
+        }
+      } catch {
+        // Party no longer exists, remove session
+        removeSession(partyId);
+      }
+    }
+    setSavedParties(parties);
+  };
+
+  const rejoinParty = async (partyData, memberData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setParty(partyData);
+      setMember(memberData);
+      setMembers(partyData.party_members);
+      const lb = await getLeaderboard(partyData.id);
+      setLeaderboard(lb);
+      setScreen("lobby");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const currentPlayer = rounds[currentRound]?.player;
   const currentDailyRoundId = rounds[currentRound]?.id;
@@ -269,6 +318,26 @@ export default function CareerQuizApp() {
             <h1 style={s.logoTitle}>Career Quiz</h1>
             <p style={s.logoSub}>Guess football players from their club history</p>
           </div>
+
+          {savedParties.length > 0 && (
+            <div style={s.section}>
+              <div style={s.sectionHeader}>MY PARTIES</div>
+              {savedParties.map(({ party, member }) => (
+                <button
+                  key={party.id}
+                  style={s.menuCard}
+                  onClick={() => rejoinParty(party, member)}
+                >
+                  <span style={s.menuIcon}>{member.avatar_emoji || "⚽"}</span>
+                  <div style={s.menuText}>
+                    <span style={s.menuTitle}>{party.name}</span>
+                    <span style={s.menuDesc}>Playing as {member.nickname}</span>
+                  </div>
+                  <span style={s.menuArrow}>→</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div style={s.section}>
             <div style={s.sectionHeader}>GET STARTED</div>
@@ -1192,7 +1261,8 @@ const s = {
     gap: 16,
     padding: "18px 20px",
     background: "#0f0f0f",
-    border: "1px solid",
+    borderWidth: 1,
+    borderStyle: "solid",
     borderRadius: 12,
   },
   feedbackIcon: {
@@ -1267,7 +1337,8 @@ const s = {
     marginBottom: 6,
     background: "#0f0f0f",
     borderRadius: 10,
-    borderLeft: "3px solid",
+    borderLeftWidth: 3,
+    borderLeftStyle: "solid",
   },
   breakdownName: {
     fontSize: 15,
