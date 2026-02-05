@@ -71,7 +71,7 @@ export async function createParty(name, roundsPerDay, nickname, avatarEmoji) {
 export async function getPartyByCode(code) {
   const { data, error } = await supabase
     .from("parties")
-    .select("*, party_members(*)")
+    .select("*, party_members!party_id(*)")
     .eq("invite_code", code.toUpperCase())
     .eq("is_active", true)
     .single();
