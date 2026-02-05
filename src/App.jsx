@@ -17,10 +17,42 @@ import {
   getAllSessions,
   getPartyById,
   removeSession,
+  // Solo mode
+  getSoloDailyRounds,
+  getRandomPlayers,
+  hasSoloDailyCompleted,
+  setSoloDailyCompleted,
+  getSoloDailyScore,
+  saveSoloDailyScore,
+  getInfiniteStats,
+  updateInfiniteStats,
 } from "./lib/supabase";
 
-const REVEAL_INTERVAL = 3200;
+const REVEAL_INTERVAL = 2000; // Faster reveal (was 3200)
 const AVATARS = ["⚽", "🥅", "🏟️", "🧤", "👟", "🎯", "🏆", "⭐", "🦁", "🐉", "🦅", "🐺"];
+
+// Available leagues/countries for filtering
+const LEAGUES = [
+  { code: "EN", name: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { code: "ES", name: "Spain", flag: "🇪🇸" },
+  { code: "DE", name: "Germany", flag: "🇩🇪" },
+  { code: "IT", name: "Italy", flag: "🇮🇹" },
+  { code: "FR", name: "France", flag: "🇫🇷" },
+  { code: "NL", name: "Netherlands", flag: "🇳🇱" },
+  { code: "PT", name: "Portugal", flag: "🇵🇹" },
+  { code: "BR", name: "Brazil", flag: "🇧🇷" },
+  { code: "AR", name: "Argentina", flag: "🇦🇷" },
+  { code: "TR", name: "Turkey", flag: "🇹🇷" },
+];
+
+// Year range options
+const YEAR_OPTIONS = [
+  { label: "All eras", min: null, max: null },
+  { label: "2010+", min: 2010, max: null },
+  { label: "2000s", min: 2000, max: 2009 },
+  { label: "1990s", min: 1990, max: 1999 },
+  { label: "Classics (pre-1990)", min: null, max: 1989 },
+];
 
 function normalize(str) {
   return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").trim();
@@ -30,6 +62,56 @@ function formatTime(ms) {
   const s = Math.floor(ms / 1000);
   const d = Math.floor((ms % 1000) / 100);
   return `${s}.${d}s`;
+}
+
+// Levenshtein distance for fuzzy matching
+function levenshtein(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      matrix[i][j] = b[i - 1] === a[j - 1]
+        ? matrix[i - 1][j - 1]
+        : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// Fuzzy match: returns true if guess is close enough to any alias
+function fuzzyMatch(guess, aliases) {
+  const normalizedGuess = normalize(guess);
+  if (!normalizedGuess || normalizedGuess.length < 3) return false;
+
+  for (const alias of aliases) {
+    const normalizedAlias = normalize(alias);
+
+    // Exact match
+    if (normalizedAlias === normalizedGuess) return true;
+
+    // Contains match (for partial names like "Ronaldo" matching "Cristiano Ronaldo")
+    if (normalizedAlias.includes(normalizedGuess) || normalizedGuess.includes(normalizedAlias)) return true;
+
+    // Fuzzy match with Levenshtein distance
+    // Allow more errors for longer names
+    const maxDistance = Math.floor(Math.max(normalizedGuess.length, normalizedAlias.length) * 0.25);
+    const distance = levenshtein(normalizedGuess, normalizedAlias);
+    if (distance <= Math.max(2, maxDistance)) return true;
+
+    // Check individual words (for "Messi" matching "Lionel Messi")
+    const guessWords = normalizedGuess.split(/\s+/);
+    const aliasWords = normalizedAlias.split(/\s+/);
+    for (const gw of guessWords) {
+      if (gw.length < 3) continue;
+      for (const aw of aliasWords) {
+        if (aw.length < 3) continue;
+        if (aw === gw) return true;
+        if (levenshtein(gw, aw) <= 1) return true;
+      }
+    }
+  }
+  return false;
 }
 
 export default function CareerQuizApp() {
@@ -51,6 +133,12 @@ export default function CareerQuizApp() {
   const [scores, setScores] = useState([]);
   const [streak, setStreak] = useState(0);
   const [savedParties, setSavedParties] = useState([]);
+
+  // Solo mode state
+  const [soloMode, setSoloMode] = useState(null); // "daily" or "infinite"
+  const [infinitePlayer, setInfinitePlayer] = useState(null);
+  const [infiniteStats, setInfiniteStats] = useState({ played: 0, correct: 0, totalPoints: 0 });
+  const [playedPlayerIds, setPlayedPlayerIds] = useState([]);
 
   const inputRef = useRef(null);
   const timerRef = useRef(null);
@@ -146,11 +234,11 @@ export default function CareerQuizApp() {
     return () => { unsubScores(); unsubMembers(); };
   }, [party?.id]);
 
-  const createParty = async (name, roundsPerDay, nickname, avatar) => {
+  const createParty = async (name, roundsPerDay, nickname, avatar, filters = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const { party: newParty, member: newMember } = await supabaseCreateParty(name, roundsPerDay, nickname, avatar);
+      const { party: newParty, member: newMember } = await supabaseCreateParty(name, roundsPerDay, nickname, avatar, filters);
       setParty(newParty);
       setMember(newMember);
       setMembers([newMember]);
@@ -223,13 +311,20 @@ export default function CareerQuizApp() {
     }
   };
 
+  // Tap to reveal next club faster
+  const revealNextClub = () => {
+    const player = soloMode === "infinite" ? infinitePlayer : currentPlayer;
+    if (isCorrect !== null || !player) return;
+    setRevealedClubs(r => {
+      if (r >= player.career.length) return r;
+      return r + 1;
+    });
+  };
+
   const checkGuess = async () => {
     if (!guess.trim() || !currentPlayer) return;
-    const ng = normalize(guess);
     const allAliases = [currentPlayer.name, ...(currentPlayer.aliases || [])];
-    const match = allAliases.some(
-      a => normalize(a) === ng || normalize(a).includes(ng) || ng.includes(normalize(a))
-    );
+    const match = fuzzyMatch(guess, allAliases);
     if (match) {
       clearInterval(timerRef.current);
       clearInterval(revealRef.current);
@@ -306,6 +401,154 @@ export default function CareerQuizApp() {
     }
   };
 
+  // ============================================================
+  // Solo Mode Functions
+  // ============================================================
+
+  const startSoloDaily = async () => {
+    if (hasSoloDailyCompleted()) {
+      const todayScore = getSoloDailyScore();
+      if (todayScore) {
+        setError(`You've already completed today's challenge! Score: ${todayScore.score} pts (${todayScore.correct}/${todayScore.total})`);
+        return;
+      }
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const dailyRounds = await getSoloDailyRounds();
+      if (dailyRounds.length === 0) {
+        setError("No daily challenge available. Try again later.");
+        return;
+      }
+      setSoloMode("daily");
+      setRounds(dailyRounds);
+      setCurrentRound(0);
+      setRevealedClubs(1);
+      setGuess("");
+      setTimer(0);
+      setIsCorrect(null);
+      setScores([]);
+      setStreak(0);
+      setScreen("playing");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startSoloInfinite = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setInfiniteStats(getInfiniteStats());
+      setPlayedPlayerIds([]);
+      await loadNextInfinitePlayer([]);
+      setSoloMode("infinite");
+      setScreen("playing");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadNextInfinitePlayer = async (excludeIds) => {
+    const players = await getRandomPlayers(1, excludeIds);
+    if (players.length === 0) {
+      setError("No more players available!");
+      return false;
+    }
+    setInfinitePlayer(players[0]);
+    setRevealedClubs(1);
+    setGuess("");
+    setTimer(0);
+    setIsCorrect(null);
+    return true;
+  };
+
+  const handleSoloGuess = async () => {
+    if (!guess.trim()) return;
+
+    const player = soloMode === "infinite" ? infinitePlayer : rounds[currentRound]?.player;
+    if (!player) return;
+
+    const allAliases = [player.name, ...(player.aliases || [])];
+    const match = fuzzyMatch(guess, allAliases);
+
+    if (match) {
+      clearInterval(timerRef.current);
+      clearInterval(revealRef.current);
+      setIsCorrect(true);
+
+      const timeBonus = Math.max(0, 300 - Math.floor(timer / 100));
+      const revealBonus = Math.max(0, (player.career.length - revealedClubs) * 100);
+      const roundScore = 100 + timeBonus + revealBonus;
+
+      setScores(s => [...s, { player: player.name, score: roundScore, time: timer, clubs: revealedClubs }]);
+      setStreak(s => s + 1);
+
+      if (soloMode === "infinite") {
+        const newStats = updateInfiniteStats(roundScore, true);
+        setInfiniteStats(newStats);
+      }
+    } else {
+      setGuess("");
+    }
+  };
+
+  const handleSoloGiveUp = async () => {
+    clearInterval(timerRef.current);
+    clearInterval(revealRef.current);
+    setIsCorrect(false);
+
+    const player = soloMode === "infinite" ? infinitePlayer : rounds[currentRound]?.player;
+    setScores(s => [...s, { player: player?.name || "Unknown", score: 0, time: timer, clubs: revealedClubs }]);
+    setStreak(0);
+
+    if (soloMode === "infinite") {
+      const newStats = updateInfiniteStats(0, false);
+      setInfiniteStats(newStats);
+    }
+  };
+
+  const handleSoloNext = async () => {
+    if (soloMode === "daily") {
+      if (currentRound + 1 >= rounds.length) {
+        // Daily challenge complete
+        const total = scores.reduce((a, s) => a + s.score, 0);
+        const correct = scores.filter(s => s.score > 0).length;
+        setSoloDailyCompleted();
+        saveSoloDailyScore(total, correct, rounds.length);
+        setScreen("soloResult");
+      } else {
+        setCurrentRound(i => i + 1);
+        setRevealedClubs(1);
+        setGuess("");
+        setTimer(0);
+        setIsCorrect(null);
+      }
+    } else {
+      // Infinite mode - load next player
+      const newExcludeIds = [...playedPlayerIds, infinitePlayer?.id].filter(Boolean);
+      setPlayedPlayerIds(newExcludeIds);
+      const success = await loadNextInfinitePlayer(newExcludeIds);
+      if (!success) {
+        setScreen("soloResult");
+      }
+    }
+  };
+
+  const exitSoloMode = () => {
+    setSoloMode(null);
+    setInfinitePlayer(null);
+    setRounds([]);
+    setScores([]);
+    setScreen("home");
+  };
+
   const totalScore = scores.reduce((a, s) => a + s.score, 0);
 
   // ---- HOME ----
@@ -358,6 +601,32 @@ export default function CareerQuizApp() {
               <span style={s.menuArrow}>→</span>
             </button>
           </div>
+
+          <div style={s.section}>
+            <div style={s.sectionHeader}>SOLO MODE</div>
+            <button style={s.menuCard} onClick={startSoloDaily} disabled={loading}>
+              <span style={s.menuIcon}>📅</span>
+              <div style={s.menuText}>
+                <span style={s.menuTitle}>Daily Challenge</span>
+                <span style={s.menuDesc}>
+                  {hasSoloDailyCompleted()
+                    ? `✓ Completed today (${getSoloDailyScore()?.score || 0} pts)`
+                    : "5 players, same for everyone"}
+                </span>
+              </div>
+              <span style={s.menuArrow}>→</span>
+            </button>
+            <button style={s.menuCard} onClick={startSoloInfinite} disabled={loading}>
+              <span style={s.menuIcon}>♾️</span>
+              <div style={s.menuText}>
+                <span style={s.menuTitle}>Infinite Practice</span>
+                <span style={s.menuDesc}>Endless training mode</span>
+              </div>
+              <span style={s.menuArrow}>→</span>
+            </button>
+          </div>
+
+          {error && <div style={s.errorBox}>{error}</div>}
 
           <p style={s.footerNote}>Challenge friends via WhatsApp</p>
         </div>
@@ -441,23 +710,60 @@ export default function CareerQuizApp() {
 
   // ---- PLAYING ----
   if (screen === "playing") {
+    // Determine which player to show based on mode
+    const activePlayer = soloMode === "infinite" ? infinitePlayer : currentPlayer;
+    const activeCareer = activePlayer?.career || [];
+
+    // Determine which handlers to use
+    const onGuess = soloMode ? handleSoloGuess : checkGuess;
+    const onGiveUp = soloMode ? handleSoloGiveUp : giveUp;
+    const onNext = soloMode ? handleSoloNext : nextRound;
+
+    // Round display
+    const roundDisplay = soloMode === "infinite"
+      ? `#${scores.length + 1}`
+      : `${currentRound + 1} / ${totalRounds}`;
+
+    const showNextButton = soloMode === "infinite"
+      ? true
+      : currentRound + 1 < totalRounds;
+
+    const nextButtonText = soloMode === "infinite"
+      ? "Next Player →"
+      : (currentRound + 1 >= totalRounds ? "See Results →" : "Next Player →");
+
     return (
       <Container>
         <div style={s.gameWrap}>
           <div style={s.gameTop}>
-            <span style={s.roundTag}>{currentRound + 1} / {totalRounds}</span>
+            {soloMode && (
+              <button style={s.exitBtn} onClick={exitSoloMode}>✕</button>
+            )}
+            <span style={s.roundTag}>
+              {soloMode === "daily" && "📅 "}
+              {soloMode === "infinite" && "♾️ "}
+              {roundDisplay}
+            </span>
             <span style={s.timerText}>{formatTime(timer)}</span>
             {streak > 1 && <span style={s.streakTag}>🔥 {streak}</span>}
           </div>
 
-          <div style={s.careerBox}>
+          {soloMode === "infinite" && (
+            <div style={s.infiniteStats}>
+              <span>{infiniteStats.correct}/{infiniteStats.played} correct</span>
+              <span>·</span>
+              <span>{infiniteStats.totalPoints} pts</span>
+            </div>
+          )}
+
+          <div style={s.careerBox} onClick={revealNextClub}>
             <div style={s.sectionHeader}>SENIOR CAREER</div>
             <div style={s.careerHeader}>
               <span style={s.colYears}>Years</span>
               <span style={s.colClub}>Club</span>
               <span style={s.colStats}>Apps (Gls)</span>
             </div>
-            {currentPlayer?.career.map((c, i) => {
+            {activeCareer.map((c, i) => {
               const visible = i < revealedClubs || isCorrect !== null;
               return (
                 <div key={i} style={{
@@ -474,13 +780,16 @@ export default function CareerQuizApp() {
               );
             })}
             <div style={s.progressDots}>
-              {currentPlayer?.career.map((_, i) => (
+              {activeCareer.map((_, i) => (
                 <span key={i} style={{
                   ...s.dot,
                   background: i < revealedClubs || isCorrect !== null ? "#fff" : "rgba(255,255,255,0.2)",
                 }} />
               ))}
             </div>
+            {isCorrect === null && revealedClubs < activeCareer.length && (
+              <div style={s.tapHint}>Tap to reveal next club</div>
+            )}
           </div>
 
           {isCorrect === null ? (
@@ -491,16 +800,16 @@ export default function CareerQuizApp() {
                   type="text"
                   value={guess}
                   onChange={e => setGuess(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && checkGuess()}
+                  onKeyDown={e => e.key === "Enter" && onGuess()}
                   placeholder="Type player name..."
                   style={s.guessInput}
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"
                 />
-                <button style={s.submitBtn} onClick={checkGuess}>→</button>
+                <button style={s.submitBtn} onClick={onGuess}>→</button>
               </div>
-              <button style={s.skipBtn} onClick={giveUp}>Skip this player</button>
+              <button style={s.skipBtn} onClick={onGiveUp}>Skip this player</button>
             </div>
           ) : (
             <div style={s.feedbackArea}>
@@ -513,7 +822,7 @@ export default function CareerQuizApp() {
                   <span style={{ ...s.feedbackStatus, color: isCorrect ? "#22c55e" : "#ef4444" }}>
                     {isCorrect ? "Correct!" : "Wrong"}
                   </span>
-                  <span style={s.feedbackName}>{currentPlayer?.name}</span>
+                  <span style={s.feedbackName}>{activePlayer?.name}</span>
                   {isCorrect && (
                     <span style={s.feedbackMeta}>
                       +{scores[scores.length - 1]?.score} pts · {formatTime(timer)} · {revealedClubs} club{revealedClubs > 1 ? "s" : ""}
@@ -521,9 +830,14 @@ export default function CareerQuizApp() {
                   )}
                 </div>
               </div>
-              <button style={s.nextBtn} onClick={nextRound}>
-                {currentRound + 1 >= totalRounds ? "See Results →" : "Next Player →"}
+              <button style={s.nextBtn} onClick={onNext}>
+                {nextButtonText}
               </button>
+              {soloMode === "infinite" && (
+                <button style={s.textBtn} onClick={exitSoloMode}>
+                  End Session
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -574,6 +888,90 @@ export default function CareerQuizApp() {
             </button>
             <button style={s.textBtn} onClick={() => setScreen("lobby")}>
               Back to Lobby
+            </button>
+          </div>
+        </div>
+      </Container>
+    );
+  }
+
+  // ---- SOLO RESULT ----
+  if (screen === "soloResult") {
+    const correct = scores.filter(s => s.score > 0).length;
+    const total = scores.length;
+
+    return (
+      <Container>
+        <div style={s.screenWrap}>
+          <div style={s.resultHeader}>
+            <span style={s.soloModeLabel}>
+              {soloMode === "daily" ? "📅 Daily Challenge" : "♾️ Infinite Mode"}
+            </span>
+            <span style={s.resultScore}>{totalScore}</span>
+            <span style={s.resultLabel}>POINTS</span>
+            <span style={s.resultSub}>{correct} / {total} correct</span>
+          </div>
+
+          <div style={s.section}>
+            <div style={s.sectionHeader}>BREAKDOWN</div>
+            {scores.map((sc, i) => (
+              <div key={i} style={{
+                ...s.breakdownRow,
+                borderLeftColor: sc.score > 0 ? "#22c55e" : "#ef4444",
+              }}>
+                <div>
+                  <div style={s.breakdownName}>{sc.player}</div>
+                  <div style={s.breakdownMeta}>{formatTime(sc.time)} · {sc.clubs} club{sc.clubs > 1 ? "s" : ""}</div>
+                </div>
+                <span style={{ ...s.breakdownPts, color: sc.score > 0 ? "#22c55e" : "#ef4444" }}>
+                  {sc.score > 0 ? `+${sc.score}` : "0"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {soloMode === "infinite" && (
+            <div style={s.section}>
+              <div style={s.sectionHeader}>SESSION STATS</div>
+              <div style={s.statsRow}>
+                <span>Players guessed:</span>
+                <span>{infiniteStats.played}</span>
+              </div>
+              <div style={s.statsRow}>
+                <span>Accuracy:</span>
+                <span>{infiniteStats.played > 0 ? Math.round((infiniteStats.correct / infiniteStats.played) * 100) : 0}%</span>
+              </div>
+              <div style={s.statsRow}>
+                <span>Total points:</span>
+                <span>{infiniteStats.totalPoints}</span>
+              </div>
+            </div>
+          )}
+
+          <div style={s.section}>
+            {soloMode === "daily" && (
+              <button style={s.actionCard} onClick={() => {
+                const text = `⚽ Career Quiz Daily Challenge\n🏆 ${totalScore} pts — ${correct}/${total} correct\n\nCan you beat me?`;
+                if (navigator.share) {
+                  navigator.share({ text });
+                } else {
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+                }
+              }}>
+                <span style={s.actionIcon}>📤</span>
+                <span style={s.actionText}>Share Score</span>
+                <span style={s.menuArrow}>→</span>
+              </button>
+            )}
+            {soloMode === "infinite" && (
+              <button style={s.actionCard} onClick={startSoloInfinite}>
+                <span style={s.actionIcon}>🔄</span>
+                <span style={s.actionText}>Play Again</span>
+                <span style={s.menuArrow}>→</span>
+              </button>
+            )}
+            <button style={s.textBtn} onClick={exitSoloMode}>
+              Back to Home
             </button>
           </div>
         </div>
@@ -637,8 +1035,27 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
   const [rounds, setRounds] = useState(5);
   const [nickname, setNickname] = useState("");
   const [avatar, setAvatar] = useState("⚽");
+  const [showFilters, setShowFilters] = useState(false);
+  const [yearOption, setYearOption] = useState(0); // Index into YEAR_OPTIONS
+  const [selectedLeagues, setSelectedLeagues] = useState([]);
+
+  const toggleLeague = (code) => {
+    setSelectedLeagues(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
 
   const canSubmit = name.trim() && nickname.trim() && !loading;
+
+  const handleCreate = () => {
+    if (!canSubmit) return;
+    const filters = {
+      startYearMin: YEAR_OPTIONS[yearOption].min,
+      startYearMax: YEAR_OPTIONS[yearOption].max,
+      leagues: selectedLeagues,
+    };
+    onCreate(name, rounds, nickname, avatar, filters);
+  };
 
   return (
     <div style={s.screenWrap}>
@@ -671,6 +1088,58 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
             </button>
           ))}
         </div>
+      </div>
+
+      <div style={s.section}>
+        <button
+          style={s.filterToggle}
+          onClick={() => setShowFilters(!showFilters)}
+        >
+          <span>🎯 Player Filters</span>
+          <span style={s.filterToggleArrow}>{showFilters ? "▼" : "▶"}</span>
+        </button>
+
+        {showFilters && (
+          <div style={s.filterContent}>
+            <label style={s.fieldLabel}>Career era</label>
+            <div style={s.eraGrid}>
+              {YEAR_OPTIONS.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => setYearOption(i)}
+                  style={{
+                    ...s.eraBtn,
+                    ...(yearOption === i ? s.optionActive : {}),
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <label style={s.fieldLabel}>Leagues played in (optional)</label>
+            <div style={s.leagueGrid}>
+              {LEAGUES.map(league => (
+                <button
+                  key={league.code}
+                  onClick={() => toggleLeague(league.code)}
+                  style={{
+                    ...s.leagueBtn,
+                    ...(selectedLeagues.includes(league.code) ? s.leagueActive : {}),
+                  }}
+                >
+                  <span>{league.flag}</span>
+                  <span style={s.leagueName}>{league.name}</span>
+                </button>
+              ))}
+            </div>
+            {selectedLeagues.length > 0 && (
+              <p style={s.filterHint}>
+                Players who played in any of these leagues
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={s.section}>
@@ -709,7 +1178,7 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
           opacity: canSubmit ? 1 : 0.4,
           cursor: canSubmit ? "pointer" : "not-allowed",
         }}
-        onClick={() => canSubmit && onCreate(name, rounds, nickname, avatar)}
+        onClick={handleCreate}
       >
         {loading ? "Creating..." : "Create Party →"}
       </button>
@@ -1103,6 +1572,82 @@ const s = {
     background: "#1a1a1a",
     borderColor: "#fff",
   },
+  // Filter styles
+  filterToggle: {
+    width: "100%",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "14px 16px",
+    background: "#0f0f0f",
+    border: "1px solid #1a1a1a",
+    borderRadius: 10,
+    color: "#888",
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  filterToggleArrow: {
+    fontSize: 10,
+    color: "#555",
+  },
+  filterContent: {
+    marginTop: 12,
+    padding: "16px",
+    background: "#0a0a0a",
+    border: "1px solid #1a1a1a",
+    borderRadius: 10,
+  },
+  eraGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 8,
+  },
+  eraBtn: {
+    padding: "12px 8px",
+    background: "#0f0f0f",
+    border: "1px solid #222",
+    borderRadius: 8,
+    color: "#888",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  leagueGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 8,
+  },
+  leagueBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "10px 12px",
+    background: "#0f0f0f",
+    border: "1px solid #222",
+    borderRadius: 8,
+    color: "#888",
+    fontSize: 13,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textAlign: "left",
+  },
+  leagueActive: {
+    background: "#1a1a1a",
+    borderColor: "#fff",
+    color: "#fff",
+  },
+  leagueName: {
+    fontSize: 12,
+  },
+  filterHint: {
+    fontSize: 11,
+    color: "#555",
+    marginTop: 8,
+    fontStyle: "italic",
+  },
   primaryBtn: {
     width: "100%",
     padding: "16px 0",
@@ -1165,6 +1710,15 @@ const s = {
     borderRadius: 14,
     padding: "20px 16px 16px",
     marginBottom: 20,
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  tapHint: {
+    textAlign: "center",
+    fontSize: 12,
+    color: "#555",
+    marginTop: 12,
+    fontStyle: "italic",
   },
   careerHeader: {
     display: "flex",
@@ -1407,5 +1961,42 @@ const s = {
     color: "#555",
     textAlign: "center",
     padding: "40px 0",
+  },
+
+  // Solo mode
+  exitBtn: {
+    background: "none",
+    border: "none",
+    color: "#666",
+    fontSize: 14,
+    padding: "12px 0",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  soloModeLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "1.5px",
+    color: "#666",
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  infiniteStats: {
+    display: "flex",
+    justifyContent: "center",
+    gap: 24,
+    padding: "16px 0",
+    marginBottom: 16,
+    borderBottom: "1px solid #1a1a1a",
+  },
+  statsRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "12px 16px",
+    marginBottom: 4,
+    background: "#0f0f0f",
+    borderRadius: 8,
+    fontSize: 14,
   },
 };

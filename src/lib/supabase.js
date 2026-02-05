@@ -23,19 +23,27 @@ const supabase = createClient(
 // ============================================================
 
 /** Create a new party and its host member */
-export async function createParty(name, roundsPerDay, nickname, avatarEmoji) {
+export async function createParty(name, roundsPerDay, nickname, avatarEmoji, filters = {}) {
   // Generate invite code
   const { data: codeData } = await supabase.rpc("generate_invite_code");
   const inviteCode = codeData || generateLocalCode();
 
+  // Build party data with optional filters
+  const partyData = {
+    name,
+    invite_code: inviteCode,
+    rounds_per_day: roundsPerDay,
+  };
+
+  // Add filters if provided
+  if (filters.startYearMin) partyData.filter_start_year_min = filters.startYearMin;
+  if (filters.startYearMax) partyData.filter_start_year_max = filters.startYearMax;
+  if (filters.leagues && filters.leagues.length > 0) partyData.filter_leagues = filters.leagues;
+
   // Insert party
   const { data: party, error: partyErr } = await supabase
     .from("parties")
-    .insert({
-      name,
-      invite_code: inviteCode,
-      rounds_per_day: roundsPerDay,
-    })
+    .insert(partyData)
     .select()
     .single();
 
@@ -158,12 +166,12 @@ export async function getTodayRounds(partyId) {
 
   if (error) throw error;
 
-  // Sort career entries by sort_order (reveal order)
+  // Sort career entries by chronological_order (actual career timeline)
   return rounds.map((r) => ({
     ...r,
     player: {
       ...r.player,
-      career: r.player.career_entries.sort((a, b) => a.sort_order - b.sort_order),
+      career: r.player.career_entries.sort((a, b) => a.chronological_order - b.chronological_order),
     },
   }));
 }
@@ -388,4 +396,144 @@ export function removeSession(partyId) {
     delete sessions[partyId];
     localStorage.setItem("cq_sessions", JSON.stringify(sessions));
   } catch {}
+}
+
+// ============================================================
+// Solo Mode
+// ============================================================
+
+/** Get today's solo daily challenge rounds */
+export async function getSoloDailyRounds() {
+  const today = new Date().toISOString().split("T")[0];
+
+  // Generate if needed (ignore errors)
+  await supabase.rpc("generate_solo_daily_rounds", { p_date: today });
+
+  // Fetch rounds with player data
+  const { data: rounds, error } = await supabase
+    .from("solo_daily_rounds")
+    .select(`
+      id,
+      round_number,
+      round_date,
+      player:players (
+        id,
+        name,
+        aliases,
+        difficulty,
+        career_entries (
+          sort_order,
+          chronological_order,
+          years,
+          club,
+          country_code,
+          country_flag,
+          matches,
+          goals
+        )
+      )
+    `)
+    .eq("round_date", today)
+    .order("round_number");
+
+  if (error) throw error;
+
+  return rounds.map((r) => ({
+    ...r,
+    player: {
+      ...r.player,
+      career: r.player.career_entries.sort((a, b) => a.chronological_order - b.chronological_order),
+    },
+  }));
+}
+
+/** Get random players for infinite mode */
+export async function getRandomPlayers(count = 1, excludeIds = []) {
+  const { data, error } = await supabase.rpc("get_random_players", {
+    p_count: count,
+    p_exclude_ids: excludeIds.length > 0 ? excludeIds : null,
+  });
+
+  if (error) throw error;
+
+  // Fetch career entries for each player
+  const playerIds = data.map((p) => p.id);
+  const { data: careers, error: careerErr } = await supabase
+    .from("career_entries")
+    .select("*")
+    .in("player_id", playerIds)
+    .order("chronological_order");
+
+  if (careerErr) throw careerErr;
+
+  // Map careers to players
+  return data.map((p) => ({
+    ...p,
+    career: careers
+      .filter((c) => c.player_id === p.id)
+      .sort((a, b) => a.chronological_order - b.chronological_order),
+  }));
+}
+
+/** Check if user has completed today's solo challenge */
+export function hasSoloDailyCompleted() {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const completed = localStorage.getItem("cq_solo_daily_completed");
+    return completed === today;
+  } catch {
+    return false;
+  }
+}
+
+/** Mark today's solo challenge as completed */
+export function setSoloDailyCompleted() {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    localStorage.setItem("cq_solo_daily_completed", today);
+  } catch {}
+}
+
+/** Get solo daily best score */
+export function getSoloDailyScore() {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const data = JSON.parse(localStorage.getItem("cq_solo_daily_score") || "{}");
+    return data[today] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save solo daily score */
+export function saveSoloDailyScore(score, correct, total) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const data = JSON.parse(localStorage.getItem("cq_solo_daily_score") || "{}");
+    data[today] = { score, correct, total };
+    localStorage.setItem("cq_solo_daily_score", JSON.stringify(data));
+  } catch {}
+}
+
+/** Get infinite mode stats */
+export function getInfiniteStats() {
+  try {
+    return JSON.parse(localStorage.getItem("cq_infinite_stats") || '{"played":0,"correct":0,"totalPoints":0}');
+  } catch {
+    return { played: 0, correct: 0, totalPoints: 0 };
+  }
+}
+
+/** Update infinite mode stats */
+export function updateInfiniteStats(points, isCorrect) {
+  try {
+    const stats = getInfiniteStats();
+    stats.played += 1;
+    if (isCorrect) stats.correct += 1;
+    stats.totalPoints += points;
+    localStorage.setItem("cq_infinite_stats", JSON.stringify(stats));
+    return stats;
+  } catch {
+    return { played: 0, correct: 0, totalPoints: 0 };
+  }
 }
