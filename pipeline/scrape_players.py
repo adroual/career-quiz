@@ -322,7 +322,7 @@ def save_to_json(players: list[Player], filename: str = "players_data.json"):
     log.info(f"Saved {len(data)} players to {filename}")
 
 
-def run_pipeline(limit_per_league: int = 200, upload: bool = True):
+def run_pipeline(limit_per_league: int = 500, upload: bool = True):
     log.info("=== Starting Pipeline ===")
     raw_players = fetch_all_league_players(limit_per_league)
 
