@@ -466,20 +466,25 @@ export async function getRandomPlayers(count = 1, excludeIds = [], filters = {})
   if (filters.leagues && filters.leagues.length > 0) {
     query = query.overlaps("leagues_played", filters.leagues);
   }
-  if (excludeIds.length > 0) {
-    query = query.not("id", "in", `(${excludeIds.join(",")})`);
+  if (filters.nationalities && filters.nationalities.length > 0) {
+    query = query.in("nationality_code", filters.nationalities);
   }
-
   // Get random players using limit and order
   const { data, error } = await query
-    .order("id", { ascending: false }) // Just to get some ordering
-    .limit(100); // Get a pool of players
+    .order("id", { ascending: false })
+    .limit(200); // Get a larger pool for better randomness
 
   if (error) throw error;
   if (!data || data.length === 0) return [];
 
+  // Filter out already played players (more reliable than SQL filter)
+  const excludeSet = new Set(excludeIds);
+  const available = data.filter(p => !excludeSet.has(p.id));
+
+  if (available.length === 0) return [];
+
   // Shuffle and take requested count
-  const shuffled = data.sort(() => Math.random() - 0.5);
+  const shuffled = available.sort(() => Math.random() - 0.5);
   const selected = shuffled.slice(0, count);
 
   // Fetch career entries for each player

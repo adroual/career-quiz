@@ -27,6 +27,7 @@ import {
   getInfiniteStats,
   updateInfiniteStats,
 } from "./lib/supabase";
+import { getClubFlag } from "./lib/clubCountries";
 
 const REVEAL_INTERVAL = 2000; // Faster reveal (was 3200)
 const AVATARS = ["⚽", "🥅", "🏟️", "🧤", "👟", "🎯", "🏆", "⭐", "🦁", "🐉", "🦅", "🐺"];
@@ -43,6 +44,30 @@ const LEAGUES = [
   { code: "BR", name: "Brazil", flag: "🇧🇷" },
   { code: "AR", name: "Argentina", flag: "🇦🇷" },
   { code: "TR", name: "Turkey", flag: "🇹🇷" },
+];
+
+// Player nationalities for filtering
+const NATIONALITIES = [
+  { code: "FR", name: "France", flag: "🇫🇷" },
+  { code: "BR", name: "Brazil", flag: "🇧🇷" },
+  { code: "AR", name: "Argentina", flag: "🇦🇷" },
+  { code: "EN", name: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { code: "ES", name: "Spain", flag: "🇪🇸" },
+  { code: "DE", name: "Germany", flag: "🇩🇪" },
+  { code: "IT", name: "Italy", flag: "🇮🇹" },
+  { code: "PT", name: "Portugal", flag: "🇵🇹" },
+  { code: "NL", name: "Netherlands", flag: "🇳🇱" },
+  { code: "BE", name: "Belgium", flag: "🇧🇪" },
+  { code: "HR", name: "Croatia", flag: "🇭🇷" },
+  { code: "PL", name: "Poland", flag: "🇵🇱" },
+  { code: "SN", name: "Senegal", flag: "🇸🇳" },
+  { code: "CI", name: "Ivory Coast", flag: "🇨🇮" },
+  { code: "CM", name: "Cameroon", flag: "🇨🇲" },
+  { code: "NG", name: "Nigeria", flag: "🇳🇬" },
+  { code: "UY", name: "Uruguay", flag: "🇺🇾" },
+  { code: "CO", name: "Colombia", flag: "🇨🇴" },
+  { code: "SE", name: "Sweden", flag: "🇸🇪" },
+  { code: "RS", name: "Serbia", flag: "🇷🇸" },
 ];
 
 // Year range options
@@ -599,6 +624,19 @@ export default function CareerQuizApp() {
     }
   };
 
+  // Auto give-up in fortune mode when all letters are revealed (anti-cheat)
+  useEffect(() => {
+    if (soloMode !== "fortune" || !infinitePlayer || isCorrect !== null) return;
+
+    const playerName = infinitePlayer.name;
+    const letterCount = playerName.split("").filter(c => c !== " ").length;
+
+    // If all letters are revealed, auto give-up
+    if (revealedLetters.length >= letterCount) {
+      handleSoloGiveUp();
+    }
+  }, [revealedLetters, soloMode, infinitePlayer, isCorrect]);
+
   const handleSoloNext = async () => {
     if (soloMode === "daily") {
       if (currentRound + 1 >= rounds.length) {
@@ -892,7 +930,7 @@ export default function CareerQuizApp() {
                 }}>
                   <span style={s.colYears}>{visible ? c.years : "????–????"}</span>
                   <span style={s.colClub}>
-                    {visible ? <>{c.country_flag} {c.club}</> : "██████████"}
+                    {visible ? <>{getClubFlag(c.club, c.country_flag)} {c.club}</> : "██████████"}
                   </span>
                   <span style={s.colStats}>{visible ? `${c.matches} (${c.goals})` : "— (—)"}</span>
                 </div>
@@ -1186,9 +1224,16 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
   const [showFilters, setShowFilters] = useState(false);
   const [yearOption, setYearOption] = useState(0); // Index into YEAR_OPTIONS
   const [selectedLeagues, setSelectedLeagues] = useState([]);
+  const [selectedNationalities, setSelectedNationalities] = useState([]);
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const toggleNationality = (code) => {
+    setSelectedNationalities(prev =>
       prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
     );
   };
@@ -1201,6 +1246,7 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
       startYearMin: YEAR_OPTIONS[yearOption].min,
       startYearMax: YEAR_OPTIONS[yearOption].max,
       leagues: selectedLeagues,
+      nationalities: selectedNationalities,
     };
     onCreate(name, rounds, nickname, avatar, filters);
   };
@@ -1286,6 +1332,28 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
                 Players who played in any of these leagues
               </p>
             )}
+
+            <label style={s.fieldLabel}>Player nationality (optional)</label>
+            <div style={s.leagueGrid}>
+              {NATIONALITIES.map(nat => (
+                <button
+                  key={nat.code}
+                  onClick={() => toggleNationality(nat.code)}
+                  style={{
+                    ...s.leagueBtn,
+                    ...(selectedNationalities.includes(nat.code) ? s.leagueActive : {}),
+                  }}
+                >
+                  <span>{nat.flag}</span>
+                  <span style={s.leagueName}>{nat.name}</span>
+                </button>
+              ))}
+            </div>
+            {selectedNationalities.length > 0 && (
+              <p style={s.filterHint}>
+                Players from any of these countries
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -1337,9 +1405,16 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
 function InfiniteSetupScreen({ onBack, onStart, loading, error, gameType }) {
   const [yearOption, setYearOption] = useState(0);
   const [selectedLeagues, setSelectedLeagues] = useState([]);
+  const [selectedNationalities, setSelectedNationalities] = useState([]);
 
   const toggleLeague = (code) => {
     setSelectedLeagues(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const toggleNationality = (code) => {
+    setSelectedNationalities(prev =>
       prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
     );
   };
@@ -1349,6 +1424,7 @@ function InfiniteSetupScreen({ onBack, onStart, loading, error, gameType }) {
       startYearMin: YEAR_OPTIONS[yearOption].min,
       startYearMax: YEAR_OPTIONS[yearOption].max,
       leagues: selectedLeagues,
+      nationalities: selectedNationalities,
     };
     onStart(filters, gameType);
   };
@@ -1406,6 +1482,28 @@ function InfiniteSetupScreen({ onBack, onStart, loading, error, gameType }) {
         {selectedLeagues.length > 0 && (
           <p style={s.filterHint}>
             Players who played in any of these leagues
+          </p>
+        )}
+
+        <label style={s.fieldLabel}>Player nationality (optional)</label>
+        <div style={s.leagueGrid}>
+          {NATIONALITIES.map(nat => (
+            <button
+              key={nat.code}
+              onClick={() => toggleNationality(nat.code)}
+              style={{
+                ...s.leagueBtn,
+                ...(selectedNationalities.includes(nat.code) ? s.leagueActive : {}),
+              }}
+            >
+              <span>{nat.flag}</span>
+              <span style={s.leagueName}>{nat.name}</span>
+            </button>
+          ))}
+        </div>
+        {selectedNationalities.length > 0 && (
+          <p style={s.filterHint}>
+            Players from any of these countries
           </p>
         )}
       </div>
