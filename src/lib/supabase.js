@@ -448,16 +448,42 @@ export async function getSoloDailyRounds() {
 }
 
 /** Get random players for infinite mode */
-export async function getRandomPlayers(count = 1, excludeIds = []) {
-  const { data, error } = await supabase.rpc("get_random_players", {
-    p_count: count,
-    p_exclude_ids: excludeIds.length > 0 ? excludeIds : null,
-  });
+export async function getRandomPlayers(count = 1, excludeIds = [], filters = {}) {
+  // Build query with filters
+  let query = supabase
+    .from("players")
+    .select("*")
+    .gte("career_club_count", 3)
+    .gte("career_start_year", 1980); // Always enforce 1980 minimum
+
+  // Apply additional filters
+  if (filters.startYearMin && filters.startYearMin > 1980) {
+    query = query.gte("career_start_year", filters.startYearMin);
+  }
+  if (filters.startYearMax) {
+    query = query.lte("career_start_year", filters.startYearMax);
+  }
+  if (filters.leagues && filters.leagues.length > 0) {
+    query = query.overlaps("leagues_played", filters.leagues);
+  }
+  if (excludeIds.length > 0) {
+    query = query.not("id", "in", `(${excludeIds.join(",")})`);
+  }
+
+  // Get random players using limit and order
+  const { data, error } = await query
+    .order("id", { ascending: false }) // Just to get some ordering
+    .limit(100); // Get a pool of players
 
   if (error) throw error;
+  if (!data || data.length === 0) return [];
+
+  // Shuffle and take requested count
+  const shuffled = data.sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, count);
 
   // Fetch career entries for each player
-  const playerIds = data.map((p) => p.id);
+  const playerIds = selected.map((p) => p.id);
   const { data: careers, error: careerErr } = await supabase
     .from("career_entries")
     .select("*")
@@ -467,7 +493,7 @@ export async function getRandomPlayers(count = 1, excludeIds = []) {
   if (careerErr) throw careerErr;
 
   // Map careers to players
-  return data.map((p) => ({
+  return selected.map((p) => ({
     ...p,
     career: careers
       .filter((c) => c.player_id === p.id)

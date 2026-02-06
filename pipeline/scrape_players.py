@@ -3,10 +3,15 @@
 Career Quiz — Data Pipeline (uses requests directly, no supabase lib)
 Fetches football player career data from Wikidata + Wikipedia.
 
+By default, only fetches players who have played for their national team
+at least once. This ensures better player recognition.
+
 Usage:
-  python scrape_players.py          # Full run
-  python scrape_players.py test     # Test single player
-  python scrape_players.py dry      # Dry run (JSON only)
+  python scrape_players.py              # Full run (national team players only)
+  python scrape_players.py all          # Full run (all players, no filter)
+  python scrape_players.py test         # Test single player
+  python scrape_players.py test Pelé    # Test specific player
+  python scrape_players.py dry          # Dry run (JSON only, national team filter)
 """
 
 import re
@@ -102,17 +107,44 @@ def supabase_insert(table: str, data: dict) -> dict:
     return {}
 
 
-def fetch_players_from_wikidata(league_qid: str, limit: int = 500) -> list[dict]:
-    query = f"""
-    SELECT DISTINCT ?player ?playerLabel ?article WHERE {{
-      ?player wdt:P106 wd:Q937857 .
-      ?player wdt:P118 wd:{league_qid} .
-      ?article schema:about ?player ;
-               schema:isPartOf <https://en.wikipedia.org/> .
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
-    }}
-    LIMIT {limit}
+def fetch_players_from_wikidata(league_qid: str, limit: int = 500, national_team_only: bool = True) -> list[dict]:
     """
+    Fetch football players from Wikidata.
+
+    If national_team_only=True (default), only returns players who have played
+    for a national team at least once - this significantly improves player recognition.
+    """
+    if national_team_only:
+        # Only players who have been part of a national football team
+        # wdt:P54 = member of sports team
+        # wd:Q6979593 = national association football team (class)
+        query = f"""
+        SELECT DISTINCT ?player ?playerLabel ?article WHERE {{
+          ?player wdt:P106 wd:Q937857 .
+          ?player wdt:P118 wd:{league_qid} .
+
+          # Must have played for a national team
+          ?player wdt:P54 ?nationalTeam .
+          ?nationalTeam wdt:P31 wd:Q6979593 .
+
+          ?article schema:about ?player ;
+                   schema:isPartOf <https://en.wikipedia.org/> .
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+        }}
+        LIMIT {limit}
+        """
+    else:
+        # Original query - all players from the league
+        query = f"""
+        SELECT DISTINCT ?player ?playerLabel ?article WHERE {{
+          ?player wdt:P106 wd:Q937857 .
+          ?player wdt:P118 wd:{league_qid} .
+          ?article schema:about ?player ;
+                   schema:isPartOf <https://en.wikipedia.org/> .
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+        }}
+        LIMIT {limit}
+        """
     headers = {
         "Accept": "application/sparql-results+json",
         "User-Agent": "CareerQuizBot/1.0 (https://github.com/adroual/career-quiz; adroual@gmail.com)"
@@ -139,11 +171,11 @@ def fetch_players_from_wikidata(league_qid: str, limit: int = 500) -> list[dict]
     return players
 
 
-def fetch_all_league_players(limit_per_league: int = 500) -> dict:
+def fetch_all_league_players(limit_per_league: int = 500, national_team_only: bool = True) -> dict:
     all_players = {}
     for qid, name in LEAGUES.items():
-        log.info(f"Fetching {name} players...")
-        for p in fetch_players_from_wikidata(qid, limit_per_league):
+        log.info(f"Fetching {name} players (national team filter: {national_team_only})...")
+        for p in fetch_players_from_wikidata(qid, limit_per_league, national_team_only):
             if p["qid"] not in all_players:
                 all_players[p["qid"]] = p
         time.sleep(2)
@@ -322,9 +354,10 @@ def save_to_json(players: list[Player], filename: str = "players_data.json"):
     log.info(f"Saved {len(data)} players to {filename}")
 
 
-def run_pipeline(limit_per_league: int = 500, upload: bool = True):
+def run_pipeline(limit_per_league: int = 500, upload: bool = True, national_team_only: bool = True):
     log.info("=== Starting Pipeline ===")
-    raw_players = fetch_all_league_players(limit_per_league)
+    log.info(f"National team filter: {national_team_only} (only players with international caps)")
+    raw_players = fetch_all_league_players(limit_per_league, national_team_only)
 
     enriched = []
     for i, (qid, info) in enumerate(raw_players.items()):
@@ -367,6 +400,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "test":
         test_single_player(sys.argv[2] if len(sys.argv) > 2 else "Zinédine_Zidane")
     elif len(sys.argv) > 1 and sys.argv[1] == "dry":
-        run_pipeline(limit_per_league=30, upload=False)
+        run_pipeline(limit_per_league=30, upload=False, national_team_only=True)
+    elif len(sys.argv) > 1 and sys.argv[1] == "all":
+        # Run without national team filter (includes all players)
+        run_pipeline(upload=True, national_team_only=False)
     else:
-        run_pipeline(upload=True)
+        # Default: only players with national team caps
+        run_pipeline(upload=True, national_team_only=True)

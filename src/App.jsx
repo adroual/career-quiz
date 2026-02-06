@@ -133,12 +133,18 @@ export default function CareerQuizApp() {
   const [scores, setScores] = useState([]);
   const [streak, setStreak] = useState(0);
   const [savedParties, setSavedParties] = useState([]);
+  const [wrongGuess, setWrongGuess] = useState(false);
 
   // Solo mode state
-  const [soloMode, setSoloMode] = useState(null); // "daily" or "infinite"
+  const [soloMode, setSoloMode] = useState(null); // "daily", "infinite", or "fortune"
   const [infinitePlayer, setInfinitePlayer] = useState(null);
   const [infiniteStats, setInfiniteStats] = useState({ played: 0, correct: 0, totalPoints: 0 });
   const [playedPlayerIds, setPlayedPlayerIds] = useState([]);
+  const [infiniteFilters, setInfiniteFilters] = useState({});
+
+  // Wheel of Fortune mode state
+  const [revealedLetters, setRevealedLetters] = useState([]);
+  const letterRevealRef = useRef(null);
 
   const inputRef = useRef(null);
   const timerRef = useRef(null);
@@ -195,6 +201,14 @@ export default function CareerQuizApp() {
     }
   };
 
+  const deletePartyFromList = (partyId, e) => {
+    e.stopPropagation(); // Prevent triggering the parent button click
+    if (window.confirm("Remove this party from your list?")) {
+      removeSession(partyId);
+      setSavedParties(prev => prev.filter(p => p.party.id !== partyId));
+    }
+  };
+
   const currentPlayer = rounds[currentRound]?.player;
   const currentDailyRoundId = rounds[currentRound]?.id;
   const totalRounds = rounds.length;
@@ -206,22 +220,62 @@ export default function CareerQuizApp() {
   }, [screen, isCorrect, currentRound]);
 
   useEffect(() => {
-    if (screen !== "playing" || isCorrect !== null || !currentPlayer) return;
+    const player = (soloMode === "infinite" || soloMode === "fortune") ? infinitePlayer : currentPlayer;
+    if (screen !== "playing" || isCorrect !== null || !player) return;
     setRevealedClubs(1);
     revealRef.current = setInterval(() => {
       setRevealedClubs(r => {
-        if (r >= currentPlayer.career.length) { clearInterval(revealRef.current); return r; }
+        if (r >= player.career.length) { clearInterval(revealRef.current); return r; }
         return r + 1;
       });
     }, REVEAL_INTERVAL);
     return () => clearInterval(revealRef.current);
-  }, [screen, currentRound, isCorrect, currentPlayer]);
+  }, [screen, currentRound, isCorrect, currentPlayer, infinitePlayer, soloMode]);
 
   useEffect(() => {
     if (screen === "playing" && isCorrect === null) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [screen, isCorrect, currentRound]);
+
+  // Fortune mode: Progressive letter reveal
+  useEffect(() => {
+    if (screen !== "playing" || soloMode !== "fortune" || isCorrect !== null || !infinitePlayer) return;
+
+    const playerName = infinitePlayer.name;
+    const nameLength = playerName.length;
+
+    // Start with ~30% of letters visible, reveal more over time
+    const initialCount = Math.max(1, Math.floor(nameLength * 0.25));
+    const indices = [];
+    while (indices.length < initialCount) {
+      const idx = Math.floor(Math.random() * nameLength);
+      if (!indices.includes(idx) && playerName[idx] !== " ") {
+        indices.push(idx);
+      }
+    }
+    setRevealedLetters(indices);
+
+    // Reveal a new letter every 3 seconds
+    letterRevealRef.current = setInterval(() => {
+      setRevealedLetters(prev => {
+        const unrevealed = [];
+        for (let i = 0; i < nameLength; i++) {
+          if (!prev.includes(i) && playerName[i] !== " ") {
+            unrevealed.push(i);
+          }
+        }
+        if (unrevealed.length === 0) {
+          clearInterval(letterRevealRef.current);
+          return prev;
+        }
+        const nextIdx = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+        return [...prev, nextIdx];
+      });
+    }, 3000);
+
+    return () => clearInterval(letterRevealRef.current);
+  }, [screen, soloMode, isCorrect, infinitePlayer]);
 
   useEffect(() => {
     if (!party?.id) return;
@@ -313,7 +367,7 @@ export default function CareerQuizApp() {
 
   // Tap to reveal next club faster
   const revealNextClub = () => {
-    const player = soloMode === "infinite" ? infinitePlayer : currentPlayer;
+    const player = (soloMode === "infinite" || soloMode === "fortune") ? infinitePlayer : currentPlayer;
     if (isCorrect !== null || !player) return;
     setRevealedClubs(r => {
       if (r >= player.career.length) return r;
@@ -343,7 +397,12 @@ export default function CareerQuizApp() {
       setScores(s => [...s, { player: currentPlayer.name, score: roundScore, time: timer, clubs: revealedClubs }]);
       setStreak(s => s + 1);
     } else {
-      setGuess("");
+      // Show wrong guess feedback
+      setWrongGuess(true);
+      setTimeout(() => {
+        setWrongGuess(false);
+        setGuess("");
+      }, 600);
     }
   };
 
@@ -439,14 +498,23 @@ export default function CareerQuizApp() {
     }
   };
 
-  const startSoloInfinite = async () => {
+  const [setupGameType, setSetupGameType] = useState("infinite");
+
+  const openInfiniteSetup = (mode = "infinite") => {
+    setSetupGameType(mode);
+    setScreen("infiniteSetup");
+  };
+
+  const startSoloInfinite = async (filters = {}, mode = "infinite") => {
     setLoading(true);
     setError(null);
     try {
+      setInfiniteFilters(filters);
       setInfiniteStats(getInfiniteStats());
       setPlayedPlayerIds([]);
-      await loadNextInfinitePlayer([]);
-      setSoloMode("infinite");
+      setRevealedLetters([]);
+      await loadNextInfinitePlayer([], filters);
+      setSoloMode(mode); // "infinite" or "fortune"
       setScreen("playing");
     } catch (err) {
       setError(err.message);
@@ -455,24 +523,32 @@ export default function CareerQuizApp() {
     }
   };
 
-  const loadNextInfinitePlayer = async (excludeIds) => {
-    const players = await getRandomPlayers(1, excludeIds);
+  const loadNextInfinitePlayer = async (excludeIds, filters = null) => {
+    const filtersToUse = filters || infiniteFilters;
+    const players = await getRandomPlayers(1, excludeIds, filtersToUse);
     if (players.length === 0) {
-      setError("No more players available!");
+      setError("No more players available with these filters!");
       return false;
     }
     setInfinitePlayer(players[0]);
     setRevealedClubs(1);
+    setRevealedLetters([]);
     setGuess("");
     setTimer(0);
     setIsCorrect(null);
+
+    // For fortune mode, start letter reveal timer
+    if (soloMode === "fortune" || (filters && Object.keys(filters).length === 0)) {
+      clearInterval(letterRevealRef.current);
+    }
+
     return true;
   };
 
   const handleSoloGuess = async () => {
     if (!guess.trim()) return;
 
-    const player = soloMode === "infinite" ? infinitePlayer : rounds[currentRound]?.player;
+    const player = (soloMode === "infinite" || soloMode === "fortune") ? infinitePlayer : rounds[currentRound]?.player;
     if (!player) return;
 
     const allAliases = [player.name, ...(player.aliases || [])];
@@ -481,34 +557,43 @@ export default function CareerQuizApp() {
     if (match) {
       clearInterval(timerRef.current);
       clearInterval(revealRef.current);
+      clearInterval(letterRevealRef.current);
       setIsCorrect(true);
 
       const timeBonus = Math.max(0, 300 - Math.floor(timer / 100));
       const revealBonus = Math.max(0, (player.career.length - revealedClubs) * 100);
-      const roundScore = 100 + timeBonus + revealBonus;
+      // Fortune mode gets lower bonus since they have name hints
+      const modeMultiplier = soloMode === "fortune" ? 0.7 : 1;
+      const roundScore = Math.round((100 + timeBonus + revealBonus) * modeMultiplier);
 
       setScores(s => [...s, { player: player.name, score: roundScore, time: timer, clubs: revealedClubs }]);
       setStreak(s => s + 1);
 
-      if (soloMode === "infinite") {
+      if (soloMode === "infinite" || soloMode === "fortune") {
         const newStats = updateInfiniteStats(roundScore, true);
         setInfiniteStats(newStats);
       }
     } else {
-      setGuess("");
+      // Show wrong guess feedback
+      setWrongGuess(true);
+      setTimeout(() => {
+        setWrongGuess(false);
+        setGuess("");
+      }, 600);
     }
   };
 
   const handleSoloGiveUp = async () => {
     clearInterval(timerRef.current);
     clearInterval(revealRef.current);
+    clearInterval(letterRevealRef.current);
     setIsCorrect(false);
 
-    const player = soloMode === "infinite" ? infinitePlayer : rounds[currentRound]?.player;
+    const player = (soloMode === "infinite" || soloMode === "fortune") ? infinitePlayer : rounds[currentRound]?.player;
     setScores(s => [...s, { player: player?.name || "Unknown", score: 0, time: timer, clubs: revealedClubs }]);
     setStreak(0);
 
-    if (soloMode === "infinite") {
+    if (soloMode === "infinite" || soloMode === "fortune") {
       const newStats = updateInfiniteStats(0, false);
       setInfiniteStats(newStats);
     }
@@ -542,10 +627,12 @@ export default function CareerQuizApp() {
   };
 
   const exitSoloMode = () => {
+    clearInterval(letterRevealRef.current);
     setSoloMode(null);
     setInfinitePlayer(null);
     setRounds([]);
     setScores([]);
+    setRevealedLetters([]);
     setScreen("home");
   };
 
@@ -566,18 +653,26 @@ export default function CareerQuizApp() {
             <div style={s.section}>
               <div style={s.sectionHeader}>MY PARTIES</div>
               {savedParties.map(({ party, member }) => (
-                <button
-                  key={party.id}
-                  style={s.menuCard}
-                  onClick={() => rejoinParty(party, member)}
-                >
-                  <span style={s.menuIcon}>{member.avatar_emoji || "⚽"}</span>
-                  <div style={s.menuText}>
-                    <span style={s.menuTitle}>{party.name}</span>
-                    <span style={s.menuDesc}>Playing as {member.nickname}</span>
-                  </div>
-                  <span style={s.menuArrow}>→</span>
-                </button>
+                <div key={party.id} style={s.partyRow}>
+                  <button
+                    style={{ ...s.menuCard, flex: 1, marginBottom: 0 }}
+                    onClick={() => rejoinParty(party, member)}
+                  >
+                    <span style={s.menuIcon}>{member.avatar_emoji || "⚽"}</span>
+                    <div style={s.menuText}>
+                      <span style={s.menuTitle}>{party.name}</span>
+                      <span style={s.menuDesc}>Playing as {member.nickname}</span>
+                    </div>
+                    <span style={s.menuArrow}>→</span>
+                  </button>
+                  <button
+                    style={s.deleteBtn}
+                    onClick={(e) => deletePartyFromList(party.id, e)}
+                    title="Remove party"
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -616,11 +711,19 @@ export default function CareerQuizApp() {
               </div>
               <span style={s.menuArrow}>→</span>
             </button>
-            <button style={s.menuCard} onClick={startSoloInfinite} disabled={loading}>
+            <button style={s.menuCard} onClick={() => openInfiniteSetup("fortune")} disabled={loading}>
+              <span style={s.menuIcon}>🎡</span>
+              <div style={s.menuText}>
+                <span style={s.menuTitle}>Wheel of Fortune</span>
+                <span style={s.menuDesc}>Get letter hints for the name</span>
+              </div>
+              <span style={s.menuArrow}>→</span>
+            </button>
+            <button style={s.menuCard} onClick={() => openInfiniteSetup("infinite")} disabled={loading}>
               <span style={s.menuIcon}>♾️</span>
               <div style={s.menuText}>
-                <span style={s.menuTitle}>Infinite Practice</span>
-                <span style={s.menuDesc}>Endless training mode</span>
+                <span style={s.menuTitle}>Classic Practice</span>
+                <span style={s.menuDesc}>No hints, pure skill</span>
               </div>
               <span style={s.menuArrow}>→</span>
             </button>
@@ -648,6 +751,21 @@ export default function CareerQuizApp() {
     return (
       <Container>
         <JoinPartyScreen onBack={() => setScreen("home")} onJoin={joinParty} loading={loading} error={error} />
+      </Container>
+    );
+  }
+
+  // ---- INFINITE SETUP ----
+  if (screen === "infiniteSetup") {
+    return (
+      <Container>
+        <InfiniteSetupScreen
+          onBack={() => setScreen("home")}
+          onStart={startSoloInfinite}
+          loading={loading}
+          error={error}
+          gameType={setupGameType}
+        />
       </Container>
     );
   }
@@ -711,7 +829,7 @@ export default function CareerQuizApp() {
   // ---- PLAYING ----
   if (screen === "playing") {
     // Determine which player to show based on mode
-    const activePlayer = soloMode === "infinite" ? infinitePlayer : currentPlayer;
+    const activePlayer = (soloMode === "infinite" || soloMode === "fortune") ? infinitePlayer : currentPlayer;
     const activeCareer = activePlayer?.career || [];
 
     // Determine which handlers to use
@@ -720,15 +838,15 @@ export default function CareerQuizApp() {
     const onNext = soloMode ? handleSoloNext : nextRound;
 
     // Round display
-    const roundDisplay = soloMode === "infinite"
+    const roundDisplay = (soloMode === "infinite" || soloMode === "fortune")
       ? `#${scores.length + 1}`
       : `${currentRound + 1} / ${totalRounds}`;
 
-    const showNextButton = soloMode === "infinite"
+    const showNextButton = (soloMode === "infinite" || soloMode === "fortune")
       ? true
       : currentRound + 1 < totalRounds;
 
-    const nextButtonText = soloMode === "infinite"
+    const nextButtonText = (soloMode === "infinite" || soloMode === "fortune")
       ? "Next Player →"
       : (currentRound + 1 >= totalRounds ? "See Results →" : "Next Player →");
 
@@ -742,13 +860,14 @@ export default function CareerQuizApp() {
             <span style={s.roundTag}>
               {soloMode === "daily" && "📅 "}
               {soloMode === "infinite" && "♾️ "}
+              {soloMode === "fortune" && "🎡 "}
               {roundDisplay}
             </span>
             <span style={s.timerText}>{formatTime(timer)}</span>
             {streak > 1 && <span style={s.streakTag}>🔥 {streak}</span>}
           </div>
 
-          {soloMode === "infinite" && (
+          {(soloMode === "infinite" || soloMode === "fortune") && (
             <div style={s.infiniteStats}>
               <span>{infiniteStats.correct}/{infiniteStats.played} correct</span>
               <span>·</span>
@@ -794,20 +913,47 @@ export default function CareerQuizApp() {
 
           {isCorrect === null ? (
             <div style={s.guessArea}>
-              <div style={s.inputRow}>
+              {/* Fortune mode: Show partially revealed name */}
+              {soloMode === "fortune" && activePlayer && (
+                <div style={s.fortuneHint}>
+                  <div style={s.fortuneLabel}>🎡 NAME HINT</div>
+                  <div style={s.fortuneLetters}>
+                    {activePlayer.name.split("").map((char, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          ...s.fortuneLetter,
+                          ...(char === " " ? s.fortuneSpace : {}),
+                        }}
+                      >
+                        {char === " " ? "\u00A0" : (revealedLetters.includes(i) ? char.toUpperCase() : "_")}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{
+                ...s.inputRow,
+                animation: wrongGuess ? "shake 0.4s ease" : "none",
+              }}>
                 <input
                   ref={inputRef}
                   type="text"
                   value={guess}
                   onChange={e => setGuess(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && onGuess()}
+                  onKeyDown={e => e.key === "Enter" && !wrongGuess && onGuess()}
                   placeholder="Type player name..."
-                  style={s.guessInput}
+                  style={{
+                    ...s.guessInput,
+                    borderColor: wrongGuess ? "#ef4444" : "#222",
+                    transition: "border-color 0.2s ease",
+                  }}
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"
+                  disabled={wrongGuess}
                 />
-                <button style={s.submitBtn} onClick={onGuess}>→</button>
+                <button style={s.submitBtn} onClick={onGuess} disabled={wrongGuess}>✓</button>
               </div>
               <button style={s.skipBtn} onClick={onGiveUp}>Skip this player</button>
             </div>
@@ -905,7 +1051,9 @@ export default function CareerQuizApp() {
         <div style={s.screenWrap}>
           <div style={s.resultHeader}>
             <span style={s.soloModeLabel}>
-              {soloMode === "daily" ? "📅 Daily Challenge" : "♾️ Infinite Mode"}
+              {soloMode === "daily" && "📅 Daily Challenge"}
+              {soloMode === "infinite" && "♾️ Classic Mode"}
+              {soloMode === "fortune" && "🎡 Wheel of Fortune"}
             </span>
             <span style={s.resultScore}>{totalScore}</span>
             <span style={s.resultLabel}>POINTS</span>
@@ -930,7 +1078,7 @@ export default function CareerQuizApp() {
             ))}
           </div>
 
-          {soloMode === "infinite" && (
+          {(soloMode === "infinite" || soloMode === "fortune") && (
             <div style={s.section}>
               <div style={s.sectionHeader}>SESSION STATS</div>
               <div style={s.statsRow}>
@@ -963,8 +1111,8 @@ export default function CareerQuizApp() {
                 <span style={s.menuArrow}>→</span>
               </button>
             )}
-            {soloMode === "infinite" && (
-              <button style={s.actionCard} onClick={startSoloInfinite}>
+            {(soloMode === "infinite" || soloMode === "fortune") && (
+              <button style={s.actionCard} onClick={() => startSoloInfinite(infiniteFilters, soloMode)}>
                 <span style={s.actionIcon}>🔄</span>
                 <span style={s.actionText}>Play Again</span>
                 <span style={s.menuArrow}>→</span>
@@ -1181,6 +1329,91 @@ function CreatePartyScreen({ onBack, onCreate, loading, error }) {
         onClick={handleCreate}
       >
         {loading ? "Creating..." : "Create Party →"}
+      </button>
+    </div>
+  );
+}
+
+function InfiniteSetupScreen({ onBack, onStart, loading, error, gameType }) {
+  const [yearOption, setYearOption] = useState(0);
+  const [selectedLeagues, setSelectedLeagues] = useState([]);
+
+  const toggleLeague = (code) => {
+    setSelectedLeagues(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const handleStart = () => {
+    const filters = {
+      startYearMin: YEAR_OPTIONS[yearOption].min,
+      startYearMax: YEAR_OPTIONS[yearOption].max,
+      leagues: selectedLeagues,
+    };
+    onStart(filters, gameType);
+  };
+
+  const title = gameType === "fortune" ? "Wheel of Fortune" : "Classic Practice";
+  const icon = gameType === "fortune" ? "🎡" : "♾️";
+  const subtitle = gameType === "fortune"
+    ? "Get letter hints for the player name"
+    : "Guess from career history only";
+
+  return (
+    <div style={s.screenWrap}>
+      <button style={s.backLink} onClick={onBack}>← Back</button>
+      <div style={s.setupHeader}>
+        <span style={s.setupIcon}>{icon}</span>
+        <h2 style={s.pageTitle}>{title}</h2>
+        <p style={s.pageSubtitle}>{subtitle}</p>
+      </div>
+
+      <div style={s.section}>
+        <div style={s.sectionHeader}>PLAYER FILTERS</div>
+
+        <label style={s.fieldLabel}>Career era</label>
+        <div style={s.eraGrid}>
+          {YEAR_OPTIONS.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => setYearOption(i)}
+              style={{
+                ...s.eraBtn,
+                ...(yearOption === i ? s.optionActive : {}),
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <label style={s.fieldLabel}>Leagues (optional)</label>
+        <div style={s.leagueGrid}>
+          {LEAGUES.map(league => (
+            <button
+              key={league.code}
+              onClick={() => toggleLeague(league.code)}
+              style={{
+                ...s.leagueBtn,
+                ...(selectedLeagues.includes(league.code) ? s.leagueActive : {}),
+              }}
+            >
+              <span>{league.flag}</span>
+              <span style={s.leagueName}>{league.name}</span>
+            </button>
+          ))}
+        </div>
+        {selectedLeagues.length > 0 && (
+          <p style={s.filterHint}>
+            Players who played in any of these leagues
+          </p>
+        )}
+      </div>
+
+      {error && <div style={s.errorBox}>{error}</div>}
+
+      <button style={s.primaryBtn} onClick={handleStart} disabled={loading}>
+        {loading ? "Loading..." : "Start Practice →"}
       </button>
     </div>
   );
@@ -1998,5 +2231,100 @@ const s = {
     background: "#0f0f0f",
     borderRadius: 8,
     fontSize: 14,
+  },
+
+  // Party management
+  partyRow: {
+    display: "flex",
+    alignItems: "stretch",
+    gap: 8,
+    marginBottom: 8,
+  },
+  deleteBtn: {
+    background: "transparent",
+    border: "1px solid #333",
+    borderRadius: 12,
+    color: "#666",
+    fontSize: 14,
+    padding: "0 14px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.2s ease",
+  },
+
+  // Infinite setup - Game type cards
+  gameTypeCard: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "16px 18px",
+    marginBottom: 8,
+    background: "transparent",
+    border: "1px solid #222",
+    borderRadius: 12,
+    color: "#fafafa",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textAlign: "left",
+  },
+  gameTypeActive: {
+    borderColor: "#22c55e",
+    background: "rgba(34, 197, 94, 0.05)",
+  },
+  gameTypeIcon: {
+    fontSize: 24,
+    width: 36,
+    textAlign: "center",
+  },
+  checkMark: {
+    color: "#22c55e",
+    fontSize: 18,
+    fontWeight: 700,
+  },
+
+  // Fortune mode - Letter hints
+  fortuneHint: {
+    background: "#0f0f0f",
+    border: "1px solid #f97316",
+    borderRadius: 12,
+    padding: "16px 20px",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  fortuneLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "1.5px",
+    color: "#f97316",
+    marginBottom: 12,
+  },
+  fortuneLetters: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 4,
+  },
+  fortuneLetter: {
+    fontSize: 22,
+    fontWeight: 700,
+    fontFamily: "monospace",
+    color: "#fafafa",
+    minWidth: 18,
+    textAlign: "center",
+  },
+  fortuneSpace: {
+    minWidth: 12,
+  },
+
+  // Setup screen header
+  setupHeader: {
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  setupIcon: {
+    fontSize: 48,
+    display: "block",
+    marginBottom: 12,
   },
 };

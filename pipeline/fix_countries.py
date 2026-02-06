@@ -1542,6 +1542,226 @@ CLUB_COUNTRIES = {
     "İstanbulspor": "TR",
     # Poland (variant spelling)
     "ŁKS Łódź": "PL", "LKS Lodz": "PL",
+
+    # === NEW ADDITIONS (batch 2) ===
+    # Greece
+    "AEL Kalloni": "GR", "Kalloni": "GR",
+    # France
+    "AS Chatou": "FR", "Chatou": "FR", "AS Poissy": "FR", "Poissy": "FR",
+    # Romania
+    "Aerostar Bacău": "RO", "Aerostar Bacau": "RO",
+    # Saudi Arabia
+    "Al-Ra'ed": "SA", "Al-Raed": "SA",
+    # Kuwait
+    "Al-Yarmouk": "KW",
+    # Denmark
+    "B 1909": "DK", "B.67": "DK", "BK Frem": "DK", "Frem": "DK", "Dalum IF": "DK", "Dalum": "DK", "DFS": "DK",
+    # England (lower leagues)
+    "Basildon United": "EN", "Basildon": "EN", "Bracknell Town": "EN", "Bracknell": "EN",
+    "Chatham Town": "EN", "Chatham": "EN", "Chorley": "EN", "Chorley FC": "EN",
+    "Corinthian Casuals": "EN", "Corinthian": "EN", "Corinthians-Casuals": "EN",
+    "East Thurrock United": "EN", "East Thurrock": "EN", "Garforth Town": "EN", "Garforth": "EN",
+    "Grantham Town": "EN", "Grantham": "EN", "Heybridge Swifts": "EN", "Heybridge": "EN",
+    "Maldon & Tiptree": "EN", "Maldon": "EN", "Morpeth Town": "EN", "Morpeth": "EN",
+    "Wythenshawe": "EN", "Wythenshawe Town": "EN", "Wythenshawe Amateurs": "EN",
+    # Nigeria
+    "Bayelsa United": "NG", "Bayelsa": "NG",
+    # China
+    "Beijing Enterprises Group": "CN", "Beijing Enterprises": "CN",
+    "Beijing Renhe": "CN", "Renhe": "CN",
+    # Albania
+    "Besa Kavajë": "AL", "Besa Kavaje": "AL", "Tirana": "AL", "KF Tirana": "AL",
+    # Spain
+    "CA Marbella": "ES", "Marbella": "ES",
+    # USA
+    "Dallas Burn": "US", "Detroit Express": "US", "Fort Lauderdale Strikers": "US",
+    "FC Cincinnati": "US", "Cincinnati": "US", "Real Monarchs": "US", "Monarchs": "US",
+    # Netherlands
+    "De Treffers": "NL", "Treffers": "NL",
+    # Georgia
+    "Dila Gori": "GE", "Gori": "GE", "Dinamo Tbilisi": "GE", "Tbilisi": "GE",
+    # Belarus
+    "Dinamo Minsk": "BY", "Dinamo-Juni Minsk": "BY", "BATE Borisov": "BY", "BATE": "BY",
+    # Hungary
+    "Diósgyőri VTK": "HU", "Diosgyor": "HU", "Diósgyőr": "HU",
+    # Ireland
+    "Dublin City": "IE", "Dublin City FC": "IE",
+    # Malta
+    "Floriana": "MT", "Floriana FC": "MT",
+    # Japan
+    "FC Ryukyu": "JP", "Ryukyu": "JP", "Júbilo Iwata": "JP", "Jubilo Iwata": "JP",
+    "Oita Trinita": "JP", "Trinita": "JP", "SC Sagamihara": "JP", "Sagamihara": "JP",
+    # Scotland
+    "Gretna": "SC", "Gretna FC": "SC",
+    # Channel Islands (under England)
+    "Guernsey": "EN", "Guernsey FC": "EN",
+    # South Korea
+    "Gyeongnam": "KR", "Gyeongnam FC": "KR",
+    # Germany
+    "Hessen Dreieich": "DE", "Dreieich": "DE", "SV Spielberg": "DE", "Spielberg": "DE",
+    # Sweden
+    "Grebbestads IF": "SE", "Grebbestad": "SE",
+    # Iceland
+    "Stjarnan": "IS", "Stjarnan FC": "IS", "Þór Akureyri": "IS", "Thor Akureyri": "IS",
+    # Ecuador
+    "L.D.U. Quito": "EC", "LDU Quito": "EC", "Liga de Quito": "EC",
+    # Croatia
+    "Orijent": "HR", "NK Orijent": "HR",
+    # Ivory Coast
+    "Stella Club d'Adjamé": "CI", "Stella Club": "CI", "Stella Adjame": "CI",
+    # Kosovo
+    "FC Prishtina": "XK", "Prishtina": "XK",
+    # North Macedonia
+    "Vardar": "MK", "FK Vardar": "MK",
+
+    # === NEW ADDITIONS (batch 3 - final cleanup) ===
+    # Germany
+    "1. FC Düren": "DE", "FC Düren": "DE", "FC Erzberg-Wörnitz": "DE", "FC Palatia Limbach": "DE",
+    "FSA Pro": "DE", "FSV Weißenbrunn": "DE", "Hassia Bingen": "DE",
+    # Austria
+    "ASV Taxham": "AT", "Taxham": "AT", "FC Kärnten": "AT", "Kärnten": "AT",
+    # Poland
+    "Amica Wronki": "PL", "Wronki": "PL",
+    # England
+    "Ashton United": "EN", "Ashton": "EN", "Barwell": "EN", "Bath City": "EN", "Bath": "EN",
+    "Congleton Town": "EN", "Congleton": "EN", "Glapwell": "EN", "Gloucester City": "EN",
+    "Gloucester": "EN", "Hallam": "EN", "Hallam FC": "EN",
+    # Ireland
+    "Bluebell United": "IE", "Bluebell": "IE",
+    # Netherlands
+    "Buitenboys": "NL", "JVC Cuijk": "NL", "Cuijk": "NL",
+    # USA
+    "Dallas Tornado": "US", "Dallas Tornado (indoor)": "US", "Detroit Lightning": "US",
+    "Detroit Lightning (indoor)": "US", "FC Tulsa": "US", "Tulsa": "US",
+    "Fort Lauderdale CF": "US", "Las Vegas Lights": "US", "Los Angeles Salsa": "US",
+    "MLS Pro 40": "US",
+    # Belgium
+    "Eendracht Aalst": "BE", "Aalst": "BE", "FC Schoten SK": "BE", "Schoten": "BE",
+    "FC Tremlo": "BE", "Tremlo": "BE",
+    # Albania
+    "Elbasani": "AL", "KF Elbasani": "AL", "Flamurtari Vlorë": "AL", "Flamurtari": "AL",
+    "KF Teuta": "AL", "Teuta": "AL",
+    # Kazakhstan
+    "FC Vostok": "KZ", "Vostok": "KZ",
+    # Georgia
+    "FC Zestaponi": "GE", "Zestaponi": "GE",
+    # Scotland
+    "Glasgow United": "SC",
+    # Denmark
+    "HFK Sønderjylland": "DK", "Sønderjylland": "DK", "Kværndrup BK": "DK", "Kværndrup": "DK",
+    # Turkey
+    "Iğdır FK": "TR", "Igdir": "TR",
+    # Nigeria
+    "JUTH": "NG", "GBS Academy": "NG",
+    # China
+    "Jiangsu Sainty": "CN", "Jiangsu": "CN",
+    # Japan
+    "Mitsubishi Motors": "JP",
+    # Belarus
+    "MTZ-RIPO Minsk": "BY", "MTZ-RIPO": "BY",
+    # Scotland (additional)
+    "Johnstone Burgh": "SC", "Johnstone": "SC",
+    # Gulf
+    "Gulf United": "AE",
+
+    # === BATCH 4 - remaining clubs ===
+    # Sweden
+    "IFK Skövde": "SE", "Skövde": "SE",
+    # England
+    "Kidsgrove Athletic": "EN", "Kidsgrove": "EN", "Lancaster City": "EN", "Lancaster": "EN",
+    "Radcliffe": "EN", "Radcliffe FC": "EN",
+    # Ghana
+    "Legon Cities": "GH", "Legon": "GH", "Ocean Boys": "GH",
+    # USA
+    "Long Island Rough Riders": "US", "Rough Riders": "US", "New Jersey Rockets": "US",
+    "New Jersey Rockets (indoor)": "US", "New Mexico United": "US", "Palm Beach Pumas": "US",
+    "Pittsburgh Riverhounds": "US", "Riverhounds": "US", "Raleigh Flyers": "US",
+    "Ontario Fury": "US", "Ontario Fury (indoor)": "US",
+    # Ireland
+    "Longford": "IE", "Longford Town": "IE",
+    # Iran
+    "Mes Sarcheshmeh": "IR", "Sarcheshmeh": "IR",
+    # Czech Republic
+    "Motorlet Prague": "CZ", "Motorlet": "CZ",
+    # Netherlands
+    "N.E.C.": "NL", "NEC": "NL", "NEC Nijmegen": "NL",
+    # Belgium
+    "Namur FLV": "BE", "Namur": "BE",
+    # Japan
+    "Nankatsu SC": "JP", "Nankatsu": "JP", "Okinawa SV": "JP", "Okinawa": "JP",
+    # Cyprus
+    "Nea Salamina": "CY", "Salamina": "CY",
+    # Belarus
+    "Neman Grodno": "BY", "Neman": "BY", "Grodno": "BY", "RUOR Minsk": "BY", "RUOR": "BY",
+    # Scotland
+    "Newton Stewart": "SC",
+    # Slovakia
+    "Nitra": "SK", "FC Nitra": "SK",
+    # Romania
+    "Pandurii Târgu Jiu": "RO", "Pandurii": "RO", "Târgu Jiu": "RO",
+    # Indonesia
+    "Pelita Jaya": "ID",
+    # Germany
+    "Reinickendorfer Füchse": "DE", "Reinickendorf": "DE",
+
+    # === BATCH 5 - obscure lower league clubs ===
+    # Germany
+    "SC Concordia von 1907": "DE", "SV Furpach": "DE", "SV Hönnepel-Niedermörmter": "DE",
+    "SV Lövenich/Widdersdorf": "DE", "SV Sodingen": "DE", "Stahl Hettstedt": "DE",
+    "TSV Burkersdorf": "DE", "TSV Mindelheim": "DE",
+    # Austria
+    "SC Untersiebenbrunn": "AT", "SG Untersiebenbrunn": "AT", "Untersiebenbrunn": "AT",
+    "SGA Sirnitz": "AT", "Sirnitz": "AT", "SK Wullersdorf": "AT", "Wullersdorf": "AT",
+    "SPG Silz/Mötz": "AT", "Silz/Mötz": "AT",
+    # Netherlands
+    "SCH Nijmegen": "NL", "SV Nijmegen": "NL",
+    # Belgium
+    "SK Heist": "BE", "Heist": "BE",
+    # Georgia
+    "Samtredia": "GE", "FC Samtredia": "GE", "Shevardeni": "GE",
+    # USA
+    "San Diego FC": "US", "San Diego Loyal": "US", "San Diego": "US",
+    # England
+    "Scarborough": "EN", "Scarborough FC": "EN", "Squires Gate": "EN",
+    "Staveley Miners Welfare": "EN", "Staveley": "EN",
+    "Stocksbridge Park Steels": "EN", "Stocksbridge": "EN",
+    # Israel
+    "Sektzia Ness Ziona": "IL", "Sektzia": "IL", "Ness Ziona": "IL",
+    # China
+    "Shenzhen Ruby": "CN", "Shenzhen": "CN",
+    # Malaysia
+    "T-Team": "MY", "T-Team FC": "MY",
+
+    # === BATCH 6 - final remaining clubs ===
+    # Germany
+    "TSV Neusäß": "DE", "TuS Bövinghausen": "DE", "TuS Haltern": "DE", "TuS Langerwehe": "DE",
+    "VfB Hallbergmoos": "DE", "VfR Pforzheim": "DE",
+    # Austria
+    "USK Anif": "AT", "Anif": "AT", "USV Koppl": "AT", "Koppl": "AT", "Wiener Viktoria": "AT",
+    # Lebanon
+    "Tadamon Sour": "LB", "Tadamon": "LB",
+    # England
+    "Tadcaster Albion": "EN", "Tadcaster": "EN", "Tavistock": "EN", "Tow Law Town": "EN",
+    "Wembley": "EN", "Wembley FC": "EN", "Westfield": "EN", "Winsford Town": "EN",
+    "Wootton Blue Cross": "EN", "Worksop Town": "EN", "Worksop": "EN", "Wroxham": "EN",
+    # Russia
+    "Torpedo Moscow": "RU", "Torpedo": "RU",
+    # San Marino
+    "Tre Fiori": "SM",
+    # France
+    "Versailles": "FR", "FC Versailles": "FR",
+    # Japan
+    "Verspah Oita": "JP", "Verspah": "JP",
+    # Italy
+    "Viareggio": "IT", "FC Viareggio": "IT",
+    # Morocco
+    "Wydad AC": "MA", "Wydad": "MA", "Wydad Casablanca": "MA",
+    # China
+    "Xiamen Lanshi": "CN", "Xiamen": "CN", "Zhejiang Yiteng": "CN", "Zhejiang": "CN",
+    # Venezuela
+    "Zulia": "VE", "Zulia FC": "VE",
+    # Iceland
+    "ÍR": "IS", "ÍR Reykjavík": "IS",
 }
 
 COUNTRY_FLAGS = {
@@ -1586,6 +1806,8 @@ COUNTRY_FLAGS = {
     "GF": "🇬🇫",
     # More European
     "SM": "🇸🇲", "LT": "🇱🇹",
+    # New additions
+    "BY": "🇧🇾", "MT": "🇲🇹", "EC": "🇪🇨",
 }
 
 
