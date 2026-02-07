@@ -263,15 +263,17 @@ export default function CareerQuizApp() {
     }
   }, [screen, isCorrect, currentRound]);
 
-  // Fortune mode: Progressive letter reveal
+  // Fortune mode: Progressive letter reveal (capped at 70%)
   useEffect(() => {
     if (screen !== "playing" || soloMode !== "fortune" || isCorrect !== null || !infinitePlayer) return;
 
     const playerName = infinitePlayer.name;
     const nameLength = playerName.length;
+    const letterCount = playerName.split("").filter(c => c !== " ").length;
+    const maxRevealed = Math.floor(letterCount * 0.7); // Cap at 70%
 
-    // Start with ~30% of letters visible, reveal more over time
-    const initialCount = Math.max(1, Math.floor(nameLength * 0.25));
+    // Start with ~25% of letters visible
+    const initialCount = Math.max(1, Math.floor(letterCount * 0.25));
     const indices = [];
     while (indices.length < initialCount) {
       const idx = Math.floor(Math.random() * nameLength);
@@ -281,9 +283,14 @@ export default function CareerQuizApp() {
     }
     setRevealedLetters(indices);
 
-    // Reveal a new letter every 3 seconds
+    // Reveal a new letter every 3 seconds, stop at 70%
     letterRevealRef.current = setInterval(() => {
       setRevealedLetters(prev => {
+        // Stop revealing at 70%
+        if (prev.length >= maxRevealed) {
+          clearInterval(letterRevealRef.current);
+          return prev;
+        }
         const unrevealed = [];
         for (let i = 0; i < nameLength; i++) {
           if (!prev.includes(i) && playerName[i] !== " ") {
@@ -587,8 +594,16 @@ export default function CareerQuizApp() {
 
       const timeBonus = Math.max(0, 300 - Math.floor(timer / 100));
       const revealBonus = Math.max(0, (player.career.length - revealedClubs) * 100);
-      // Fortune mode gets lower bonus since they have name hints
-      const modeMultiplier = soloMode === "fortune" ? 0.7 : 1;
+
+      // Fortune mode: dynamic scoring based on revealed letters
+      // More letters revealed = fewer points (25% → 100%, 70% → 20%)
+      let modeMultiplier = 1;
+      if (soloMode === "fortune") {
+        const letterCount = player.name.split("").filter(c => c !== " ").length;
+        const revealedPct = revealedLetters.length / letterCount;
+        // Linear scale from 1.0 (at 25%) to 0.2 (at 70%)
+        modeMultiplier = Math.max(0.2, 1.0 - ((revealedPct - 0.25) / 0.45) * 0.8);
+      }
       const roundScore = Math.round((100 + timeBonus + revealBonus) * modeMultiplier);
 
       setScores(s => [...s, { player: player.name, score: roundScore, time: timer, clubs: revealedClubs }]);
@@ -624,18 +639,8 @@ export default function CareerQuizApp() {
     }
   };
 
-  // Auto give-up in fortune mode when all letters are revealed (anti-cheat)
-  useEffect(() => {
-    if (soloMode !== "fortune" || !infinitePlayer || isCorrect !== null) return;
-
-    const playerName = infinitePlayer.name;
-    const letterCount = playerName.split("").filter(c => c !== " ").length;
-
-    // If all letters are revealed, auto give-up
-    if (revealedLetters.length >= letterCount) {
-      handleSoloGiveUp();
-    }
-  }, [revealedLetters, soloMode, infinitePlayer, isCorrect]);
+  // Note: Fortune mode now caps letter reveals at 70%, so no auto give-up needed
+  // Players must still guess with 30% of letters hidden
 
   const handleSoloNext = async () => {
     if (soloMode === "daily") {

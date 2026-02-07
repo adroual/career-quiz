@@ -12,6 +12,9 @@ Usage:
   python scrape_players.py test         # Test single player
   python scrape_players.py test Pelé    # Test specific player
   python scrape_players.py dry          # Dry run (JSON only, national team filter)
+  python scrape_players.py nationality  # Fetch FR, IT, EN, ES players born >= 1985
+  python scrape_players.py nationality 400  # Same with custom limit per country
+  python scrape_players.py nationality-dry  # Dry run for nationality mode
 """
 
 import re
@@ -39,6 +42,23 @@ WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 LEAGUES = {
     "Q13394": "Ligue 1", "Q82595": "Bundesliga", "Q15804": "Serie A",
     "Q324867": "La Liga", "Q9448": "Premier League",
+}
+
+# Country QIDs for nationality-based fetching
+# For EN, we use UK (Q145) as citizenship + filter by England national team
+NATIONALITY_QIDS = {
+    "FR": ("Q142", "France"),
+    "IT": ("Q38", "Italy"),
+    "EN": ("Q145", "England"),  # UK citizenship, filtered by England NT
+    "ES": ("Q29", "Spain"),
+}
+
+# National team QIDs for more precise filtering
+NATIONAL_TEAM_QIDS = {
+    "FR": "Q47774",   # France national football team
+    "IT": "Q29737",   # Italy national football team
+    "EN": "Q47762",   # England national football team
+    "ES": "Q46989",   # Spain national football team
 }
 
 COUNTRY_FLAGS = {
@@ -169,6 +189,97 @@ def fetch_players_from_wikidata(league_qid: str, limit: int = 500, national_team
 
     log.info(f"Wikidata: Found {len(players)} players for {LEAGUES.get(league_qid, league_qid)}")
     return players
+
+
+def fetch_players_by_nationality(country_code: str, limit: int = 400, min_birth_year: int = 1985) -> list[dict]:
+    """
+    Fetch football players of a specific nationality born after min_birth_year
+    who have played for their national team.
+    """
+    if country_code not in NATIONALITY_QIDS:
+        log.error(f"Unknown country code: {country_code}")
+        return []
+
+    country_qid, country_name = NATIONALITY_QIDS[country_code]
+
+    # For England, use specific national team filter (since UK citizenship is shared)
+    # For others, use general national team class filter
+    if country_code == "EN":
+        national_team_qid = NATIONAL_TEAM_QIDS["EN"]
+        query = f"""
+        SELECT DISTINCT ?player ?playerLabel ?article WHERE {{
+          ?player wdt:P106 wd:Q937857 .
+          ?player wdt:P27 wd:{country_qid} .
+          ?player wdt:P569 ?birthDate .
+          FILTER(YEAR(?birthDate) >= {min_birth_year})
+
+          # Must have played for England national team specifically
+          ?player wdt:P54 wd:{national_team_qid} .
+
+          ?article schema:about ?player ;
+                   schema:isPartOf <https://en.wikipedia.org/> .
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+        }}
+        LIMIT {limit}
+        """
+    else:
+        # For FR, IT, ES - use citizenship + any national team
+        query = f"""
+        SELECT DISTINCT ?player ?playerLabel ?article WHERE {{
+          ?player wdt:P106 wd:Q937857 .
+          ?player wdt:P27 wd:{country_qid} .
+          ?player wdt:P569 ?birthDate .
+          FILTER(YEAR(?birthDate) >= {min_birth_year})
+
+          # Must have played for a national team
+          ?player wdt:P54 ?nationalTeam .
+          ?nationalTeam wdt:P31 wd:Q6979593 .
+
+          ?article schema:about ?player ;
+                   schema:isPartOf <https://en.wikipedia.org/> .
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+        }}
+        LIMIT {limit}
+        """
+
+    headers = {
+        "Accept": "application/sparql-results+json",
+        "User-Agent": "CareerQuizBot/1.0 (https://github.com/adroual/career-quiz; adroual@gmail.com)"
+    }
+    try:
+        resp = requests.get(WIKIDATA_SPARQL_URL, params={"query": query},
+                           headers=headers, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.error(f"Wikidata query failed for {country_name}: {e}")
+        return []
+
+    players = []
+    for result in data.get("results", {}).get("bindings", []):
+        qid = result["player"]["value"].split("/")[-1]
+        name = result.get("playerLabel", {}).get("value", "")
+        article_url = result.get("article", {}).get("value", "")
+        wiki_title = article_url.split("/wiki/")[-1] if "/wiki/" in article_url else ""
+        if name and wiki_title:
+            players.append({"qid": qid, "name": name, "wikipedia_title": wiki_title})
+
+    log.info(f"Wikidata: Found {len(players)} {country_name} players (born >= {min_birth_year})")
+    return players
+
+
+def fetch_players_by_nationalities(country_codes: list[str], limit_per_country: int = 400, min_birth_year: int = 1985) -> dict:
+    """Fetch players from multiple nationalities."""
+    all_players = {}
+    for code in country_codes:
+        country_name = NATIONALITY_QIDS.get(code, (None, code))[1]
+        log.info(f"Fetching {country_name} players (born >= {min_birth_year})...")
+        for p in fetch_players_by_nationality(code, limit_per_country, min_birth_year):
+            if p["qid"] not in all_players:
+                all_players[p["qid"]] = p
+        time.sleep(3)  # Longer delay between country queries
+    log.info(f"Total unique players from nationalities: {len(all_players)}")
+    return all_players
 
 
 def fetch_all_league_players(limit_per_league: int = 500, national_team_only: bool = True) -> dict:
@@ -354,6 +465,40 @@ def save_to_json(players: list[Player], filename: str = "players_data.json"):
     log.info(f"Saved {len(data)} players to {filename}")
 
 
+def run_nationality_pipeline(country_codes: list[str], limit_per_country: int = 400,
+                             min_birth_year: int = 1985, upload: bool = True):
+    """Pipeline to fetch players by nationality."""
+    log.info("=== Starting Nationality-Based Pipeline ===")
+    log.info(f"Countries: {country_codes}")
+    log.info(f"Min birth year: {min_birth_year}, Limit per country: {limit_per_country}")
+
+    raw_players = fetch_players_by_nationalities(country_codes, limit_per_country, min_birth_year)
+
+    enriched = []
+    for i, (qid, info) in enumerate(raw_players.items()):
+        if i % 100 == 0:
+            log.info(f"Progress: {i}/{len(raw_players)}")
+
+        wikitext = fetch_wikipedia_wikitext(info["wikipedia_title"])
+        if not wikitext:
+            continue
+
+        career = parse_career_from_wikitext(wikitext)
+        if len(career) < 2 or len(career) > 15:
+            continue
+
+        career = compute_reveal_order(career)
+        enriched.append(Player(
+            name=info["name"], aliases=generate_aliases(info["name"]),
+            wikipedia_title=info["wikipedia_title"], wikidata_id=qid,
+            difficulty=compute_difficulty(career), career=career,
+        ))
+        time.sleep(0.5)
+
+    log.info(f"Enriched {len(enriched)} players")
+    upload_to_supabase(enriched) if upload else save_to_json(enriched, "players_nationality.json")
+
+
 def run_pipeline(limit_per_league: int = 500, upload: bool = True, national_team_only: bool = True):
     log.info("=== Starting Pipeline ===")
     log.info(f"National team filter: {national_team_only} (only players with international caps)")
@@ -404,6 +549,24 @@ if __name__ == "__main__":
     elif len(sys.argv) > 1 and sys.argv[1] == "all":
         # Run without national team filter (includes all players)
         run_pipeline(upload=True, national_team_only=False)
+    elif len(sys.argv) > 1 and sys.argv[1] == "nationality":
+        # Fetch by nationality: FR, IT, EN, ES players born >= 1985
+        # Usage: python scrape_players.py nationality [limit_per_country]
+        limit = int(sys.argv[2]) if len(sys.argv) > 2 else 400
+        run_nationality_pipeline(
+            country_codes=["FR", "IT", "EN", "ES"],
+            limit_per_country=limit,
+            min_birth_year=1985,
+            upload=True
+        )
+    elif len(sys.argv) > 1 and sys.argv[1] == "nationality-dry":
+        # Dry run for nationality pipeline
+        run_nationality_pipeline(
+            country_codes=["FR", "IT", "EN", "ES"],
+            limit_per_country=50,
+            min_birth_year=1985,
+            upload=False
+        )
     else:
         # Default: only players with national team caps
         run_pipeline(upload=True, national_team_only=True)
