@@ -15,6 +15,7 @@ Usage:
   python scrape_players.py nationality  # Fetch FR, IT, EN, ES players born >= 1985
   python scrape_players.py nationality 400  # Same with custom limit per country
   python scrape_players.py nationality-dry  # Dry run for nationality mode
+  python scrape_players.py fr-boost       # Fetch more FR players (born >= 1970) for 2000s era
 """
 
 import re
@@ -566,6 +567,15 @@ if __name__ == "__main__":
             limit_per_country=50,
             min_birth_year=1985,
             upload=False
+        )
+    elif len(sys.argv) > 1 and sys.argv[1] == "fr-boost":
+        # Fetch more French players with lower birth year to capture older players
+        # Born >= 1960 captures legends and 1990s/2000s era players
+        run_nationality_pipeline(
+            country_codes=["FR"],
+            limit_per_country=800,
+            min_birth_year=1960,
+            upload=True
         )
     else:
         # Default: only players with national team caps
