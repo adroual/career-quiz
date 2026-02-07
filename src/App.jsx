@@ -721,26 +721,6 @@ export default function CareerQuizApp() {
           )}
 
           <div style={s.section}>
-            <div style={s.sectionHeader}>GET STARTED</div>
-            <button style={s.menuCard} onClick={() => setScreen("create")}>
-              <span style={s.menuIcon}>➕</span>
-              <div style={s.menuText}>
-                <span style={s.menuTitle}>Create a Party</span>
-                <span style={s.menuDesc}>Start a new game with friends</span>
-              </div>
-              <span style={s.menuArrow}>→</span>
-            </button>
-            <button style={s.menuCard} onClick={() => setScreen("join")}>
-              <span style={s.menuIcon}>🎮</span>
-              <div style={s.menuText}>
-                <span style={s.menuTitle}>Join a Party</span>
-                <span style={s.menuDesc}>Enter an invite code</span>
-              </div>
-              <span style={s.menuArrow}>→</span>
-            </button>
-          </div>
-
-          <div style={s.section}>
             <div style={s.sectionHeader}>SOLO MODE</div>
             <button style={s.menuCard} onClick={startSoloDaily} disabled={loading}>
               <span style={s.menuIcon}>📅</span>
@@ -772,9 +752,29 @@ export default function CareerQuizApp() {
             </button>
           </div>
 
+          <div style={s.section}>
+            <div style={s.sectionHeader}>PLAY WITH FRIENDS</div>
+            <button style={s.menuCard} onClick={() => setScreen("create")}>
+              <span style={s.menuIcon}>➕</span>
+              <div style={s.menuText}>
+                <span style={s.menuTitle}>Create a Party</span>
+                <span style={s.menuDesc}>Start a new game with friends</span>
+              </div>
+              <span style={s.menuArrow}>→</span>
+            </button>
+            <button style={s.menuCard} onClick={() => setScreen("join")}>
+              <span style={s.menuIcon}>🎮</span>
+              <div style={s.menuText}>
+                <span style={s.menuTitle}>Join a Party</span>
+                <span style={s.menuDesc}>Enter an invite code</span>
+              </div>
+              <span style={s.menuArrow}>→</span>
+            </button>
+          </div>
+
           {error && <div style={s.errorBox}>{error}</div>}
 
-          <p style={s.footerNote}>Challenge friends via WhatsApp</p>
+          <p style={s.footerNote}>Share your party code to challenge friends!</p>
         </div>
       </Container>
     );
